@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bgGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#090d16"/>
+    </radialGradient>
+    <linearGradient id="chromeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="30%" stop-color="#cbd5e1"/>
+      <stop offset="50%" stop-color="#64748b"/>
+      <stop offset="70%" stop-color="#e2e8f0"/>
+      <stop offset="100%" stop-color="#94a3b8"/>
+    </linearGradient>
+    <linearGradient id="redGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff1a40"/>
+      <stop offset="40%" stop-color="#e11d48"/>
+      <stop offset="100%" stop-color="#9f1239"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#e11d48" flood-opacity="0.6"/>
+    </filter>
+  </defs>
+
+  <!-- Background Shield / Rounded Rectangle -->
+  <rect x="24" y="24" width="464" height="464" rx="96" fill="url(#bgGrad)" stroke="url(#chromeGrad)" stroke-width="8"/>
+  <rect x="36" y="36" width="440" height="440" rx="84" fill="none" stroke="#e11d48" stroke-width="4" stroke-opacity="0.6"/>
+
+  <!-- Top "GT" Silver Chrome Letters -->
+  <g fill="url(#chromeGrad)" filter="drop-shadow(0 2px 4px rgba(0,0,0,0.8))">
+    <!-- G -->
+    <path d="M 160 160 C 120 160 100 185 100 220 C 100 255 120 280 160 280 C 190 280 210 265 215 240 L 165 240 L 165 215 L 245 215 C 248 245 235 305 160 305 C 100 305 68 265 68 220 C 68 175 100 135 160 135 C 205 135 235 160 242 185 L 210 195 C 202 175 185 160 160 160 Z"/>
+    <!-- T -->
+    <path d="M 270 140 L 390 140 L 390 168 L 345 168 L 345 300 L 315 300 L 315 168 L 270 168 Z"/>
+  </g>
+
+  <!-- Iconic Bold Red "R" -->
+  <g fill="url(#redGrad)" filter="url(#glow)">
+    <path d="M 180 230 L 305 230 C 355 230 385 255 385 295 C 385 330 358 355 315 362 L 395 440 L 345 440 L 275 370 L 225 370 L 225 440 L 180 440 Z M 225 268 L 225 332 L 295 332 C 325 332 342 320 342 300 C 342 280 325 268 295 268 Z"/>
+  </g>
+
+  <!-- Lower Carbon Accent Bar -->
+  <rect x="120" y="458" width="272" height="6" rx="3" fill="#e11d48" opacity="0.8"/>
+</svg>

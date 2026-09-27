@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>MIDNIGHT CIRCUIT</title>
+    <meta name="description" content="MIDNIGHT CIRCUIT - High-fidelity interactive 3D physics, Nissan GT-R R35 engine sound synthesizer, and night drive simulator with PWA desktop & mobile installation support." />
+    <meta property="og:title" content="MIDNIGHT CIRCUIT" />
+    <meta property="og:description" content="MIDNIGHT CIRCUIT - High-fidelity interactive 3D physics, Nissan GT-R R35 engine sound synthesizer, and night drive simulator with PWA desktop & mobile installation support." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- PWA Standard & Mobile Meta Tags -->
+    <meta name="theme-color" content="#090d16" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="MIDNIGHT CIRCUIT" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="stylesheet" href="/src/index.css" />
+  </head>
+  <body class="bg-black text-white m-0 p-0 overflow-hidden select-none">
+    <div id="canvas-container" class="fixed inset-0 w-full h-full"></div>
+
+    <!-- Minimal unobtrusive driving HUD -->
+    <div id="hud-overlay" class="fixed inset-0 pointer-events-none flex flex-col justify-between p-4 sm:p-6 z-10">
+      <!-- Top subtle badge & Controls -->
+      <div class="flex items-center justify-between text-xs tracking-wider text-slate-400 font-mono">
+        <div class="flex items-center gap-2">
+          <span class="font-bold text-slate-200 tracking-wider">MIDNIGHT CIRCUIT</span>
+        </div>
+        <div class="flex items-center gap-2 sm:gap-4">
+          <!-- PWA In-App Install Button -->
+          <button id="pwa-install-btn" class="pointer-events-auto hidden items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900/80 hover:bg-slate-800 text-cyan-300 font-mono text-xs font-semibold border border-cyan-500/40 hover:border-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.25)] transition-all active:scale-95 cursor-pointer select-none" title="Install GT-R App on Laptop/Desktop">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            <span id="pwa-install-text">INSTALL APP</span>
+          </button>
+
+          <!-- GT-R Anodized Red Engine Start / Stop Button -->
+          <button id="engine-btn" class="pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-full bg-gradient-to-r from-slate-800 to-red-950 hover:from-red-900 hover:to-rose-900 text-slate-200 hover:text-white font-mono text-xs font-bold border border-red-500/30 hover:border-red-500/60 shadow-[0_0_12px_rgba(225,29,72,0.3)] transition-all active:scale-95 cursor-pointer select-none" title="Engine Start / Stop (E)">
+            <span id="engine-dot" class="inline-block w-2 h-2 rounded-full bg-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.7)]"></span>
+            <span id="engine-text">START ENGINE</span>
+            <span class="text-[10px] opacity-80 bg-black/40 px-1 py-0.5 rounded font-mono border border-white/20">E</span>
+          </button>
+
+          <button id="audio-indicator" class="text-emerald-400 flex items-center gap-1.5 font-medium cursor-pointer pointer-events-auto bg-transparent border-0 p-0 hover:text-emerald-300 transition-colors" title="Toggle Engine Audio (M)">
+            <span id="audio-icon" class="text-xs">🔊</span>
+            <span id="audio-text">AUDIO ON (M)</span>
+          </button>
+          <button id="lights-indicator" class="text-cyan-400 flex items-center gap-1.5 font-medium cursor-pointer pointer-events-auto bg-transparent border-0 p-0 hover:text-cyan-300 transition-colors" title="Toggle Headlights (L)">
+            <span id="lights-dot" class="inline-block w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]"></span>
+            <span id="lights-text">LIGHTS ON (L)</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Bottom controls hint & speedometer -->
+      <div class="flex items-end justify-between">
+        <!-- Minimal controls helper -->
+        <div id="controls-hint" class="flex flex-col gap-1.5 text-xs text-slate-400 bg-slate-900/60 backdrop-blur-md px-3.5 py-2.5 rounded-lg border border-white/10 transition-opacity duration-700">
+          <div class="flex items-center gap-2">
+            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">W</span>
+            <span class="text-slate-300">/</span>
+            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">▲</span>
+            <span>Accelerate</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">S</span>
+            <span class="text-slate-300">/</span>
+            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">▼</span>
+            <span>Brake / Reverse</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="bg-amber-500/20 text-amber-300 font-mono px-1.5 py-0.5 rounded text-[11px] border border-amber-500/40">\</span>
+            <span class="text-amber-200 font-medium">Clutch (Hold + W to Rev)</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="bg-amber-500/20 text-amber-300 font-mono px-1.5 py-0.5 rounded text-[11px] border border-amber-500/40">W+SPACE</span>
+            <span class="text-amber-200 font-medium">Launch Control</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">A</span>
+            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">D</span>
+            <span class="text-slate-300">/</span>
+            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">◄</span>
+            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">►</span>
+            <span>Steer</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">E</span>
+            <span>Engine Start / Stop</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">L</span>
+            <span>Toggle Headlights</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">M</span>
+            <span>Toggle Audio</span>
+          </div>
+        </div>
+
+        <!-- Sport Instrument Cluster: Transparent Analog & Digital Twin Gauges -->
+        <div class="flex items-center gap-3 sm:gap-5 bg-slate-950/20 hover:bg-slate-950/30 backdrop-blur-[2px] px-3 sm:px-5 py-2.5 rounded-2xl border border-white/15 shadow-[0_8px_32px_rgba(0,0,0,0.5)] select-none transition-colors duration-200">
+          <!-- 1. Analog & Digital Tachometer (RPM Meter) -->
+          <div class="flex flex-col items-center">
+            <!-- Analog Dial -->
+            <div class="relative w-28 h-28 sm:w-32 sm:h-32 flex items-center justify-center">
+              <svg viewBox="0 0 120 120" class="w-full h-full filter drop-shadow-[0_4px_10px_rgba(0,0,0,0.7)] select-none">
+                <defs>
+                  <!-- Translucent smoked glass dial background -->
+                  <radialGradient id="tacho-bg" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stop-color="#020617" stop-opacity="0.30" />
+                    <stop offset="70%" stop-color="#050811" stop-opacity="0.55" />
+                    <stop offset="100%" stop-color="#0f172a" stop-opacity="0.75" />
+                  </radialGradient>
+                  <linearGradient id="tacho-gradient" x1="0%" y1="100%" x2="100%" y2="0%">
+                    <stop offset="0%" stop-color="#10b981" />
+                    <stop offset="50%" stop-color="#06b6d4" />
+                    <stop offset="80%" stop-color="#f59e0b" />
+                    <stop offset="100%" stop-color="#ef4444" />
+                  </linearGradient>
+                  <!-- Needle glow filter for high-contrast visibility -->
+                  <filter id="tacho-needle-glow" x="-30%" y="-30%" width="160%" height="160%">
+                    <feDropShadow dx="0" dy="0" stdDeviation="2.5" flood-color="#f43f5e" flood-opacity="0.9" />
+                    <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#000000" flood-opacity="1" />
+                  </filter>
+                </defs>
+
+                <!-- Gauge Face Glass Disc & Bezel Ring -->
+                <circle cx="60" cy="60" r="56" fill="url(#tacho-bg)" stroke="rgba(255,255,255,0.22)" stroke-width="1.5" />
+                <circle cx="60" cy="60" r="45" fill="none" stroke="rgba(0,0,0,0.5)" stroke-width="4.5" />
+
+                <!-- Inactive Track Arc (Sweep 270 deg from -135 to +135) -->
+                <path d="M 28.18 91.82 A 45 45 0 1 1 91.82 91.82" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="3.5" stroke-linecap="round" />
+
+                <!-- Redline Zone Arc (6.8k to 8.0k RPM) -->
+                <path d="M 104.86 63.53 A 45 45 0 0 1 91.82 91.82" fill="none" stroke="#ef4444" stroke-width="4.5" stroke-linecap="round" opacity="0.9" filter="drop-shadow(0 0 4px rgba(239,68,68,0.7))" />
+
+                <!-- Active Filled Arc (circumference length ~212.06) -->
+                <path id="tacho-arc" d="M 28.18 91.82 A 45 45 0 1 1 91.82 91.82" fill="none" stroke="url(#tacho-gradient)" stroke-width="4" stroke-linecap="round" stroke-dasharray="212.06" stroke-dashoffset="212.06" filter="drop-shadow(0 0 3px rgba(6,182,212,0.6))" />
+
+                <!-- Major Graduation Ticks (High Contrast Crisp White with outline) -->
+                <g stroke="#ffffff" stroke-width="2" stroke-linecap="round" filter="drop-shadow(0 1px 2px rgba(0,0,0,0.9))">
+                  <line x1="60" y1="16" x2="60" y2="23" transform="rotate(-135 60 60)" />
+                  <line x1="60" y1="16" x2="60" y2="23" transform="rotate(-101.25 60 60)" />
+                  <line x1="60" y1="16" x2="60" y2="23" transform="rotate(-67.5 60 60)" />
+                  <line x1="60" y1="16" x2="60" y2="23" transform="rotate(-33.75 60 60)" />
+                  <line x1="60" y1="16" x2="60" y2="23" transform="rotate(0 60 60)" />
+                  <line x1="60" y1="16" x2="60" y2="23" transform="rotate(33.75 60 60)" />
+                  <line x1="60" y1="16" x2="60" y2="23" transform="rotate(67.5 60 60)" />
+                  <line x1="60" y1="16" x2="60" y2="23" stroke="#ef4444" transform="rotate(101.25 60 60)" />
+                  <line x1="60" y1="16" x2="60" y2="23" stroke="#ef4444" transform="rotate(135 60 60)" />
+                </g>
+
+                <!-- Minor Half-Ticks -->
+                <g stroke="#cbd5e1" stroke-width="1.2" opacity="0.85" filter="drop-shadow(0 1px 1px rgba(0,0,0,0.8))">
+                  <line x1="60" y1="18" x2="60" y2="22" transform="rotate(-118.125 60 60)" />
+                  <line x1="60" y1="18" x2="60" y2="22" transform="rotate(-84.375 60 60)" />
+                  <line x1="60" y1="18" x2="60" y2="22" transform="rotate(-50.625 60 60)" />
+                  <line x1="60" y1="18" x2="60" y2="22" transform="rotate(-16.875 60 60)" />
+                  <line x1="60" y1="18" x2="60" y2="22" transform="rotate(16.875 60 60)" />
+                  <line x1="60" y1="18" x2="60" y2="22" transform="rotate(50.625 60 60)" />
+                  <line x1="60" y1="18" x2="60" y2="22" stroke="#ef4444" transform="rotate(84.375 60 60)" />
+                  <line x1="60" y1="18" x2="60" y2="22" stroke="#ef4444" transform="rotate(118.125 60 60)" />
+                </g>
+
+                <!-- Dial Numbers with Black Protective Halo for Perfect Legibility -->
+                <g font-family="ui-monospace, monospace" font-size="7.5" font-weight="800" text-anchor="middle" style="paint-order: stroke; stroke: #000000; stroke-width: 1.5px; stroke-linejoin: round;">
+                  <text x="38" y="83" fill="#ffffff">0</text>
+                  <text x="31" y="49" fill="#ffffff">2</text>
+                  <text x="60" y="31" fill="#ffffff">4</text>
+                  <text x="89" y="49" fill="#ffffff">6</text>
+                  <text x="82" y="83" fill="#ef4444">8</text>
+                </g>
+
+                <!-- Dial Center Subtext -->
+                <text x="60" y="52" fill="#38bdf8" font-size="6.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.5" style="paint-order: stroke; stroke: #000000; stroke-width: 1.2px;">x1000 RPM</text>
+
+                <!-- High-Visibility Glowing Analog Needle Group -->
+                <g id="tacho-needle-group" filter="url(#tacho-needle-glow)" style="transform-origin: 60px 60px; transform: rotate(-135deg);">
+                  <line x1="60" y1="64" x2="60" y2="17" stroke="#ff2a55" stroke-width="2.2" stroke-linecap="round" />
+                  <circle cx="60" cy="60" r="5" fill="#0f172a" stroke="#ff2a55" stroke-width="1.8" />
+                  <circle cx="60" cy="60" r="1.8" fill="#ffffff" />
+                </g>
+              </svg>
+            </div>
+
+            <!-- Digital Readout Below Analog Tachometer (Crystal Clear with Drop Shadows) -->
+            <div class="flex flex-col items-center -mt-1">
+              <div class="flex items-baseline gap-1">
+                <span id="rpm-value" class="text-xl sm:text-2xl font-mono font-black text-white tabular-nums tracking-tight drop-shadow-[0_2px_4px_rgba(0,0,0,1)]">0</span>
+                <span class="text-[10px] font-mono text-cyan-400 font-bold tracking-wider drop-shadow-[0_1px_2px_rgba(0,0,0,1)]">RPM</span>
+              </div>
+              <span class="text-[9px] font-mono text-slate-300 uppercase tracking-widest font-bold drop-shadow-[0_1px_2px_rgba(0,0,0,1)]">Tachometer</span>
+            </div>
+          </div>
+
+          <!-- 2. Center Gear Indicator & Transmission Status -->
+          <div class="flex flex-col items-center justify-center px-1.5 py-1 border-x border-white/15 w-[76px] min-w-[76px] max-w-[76px] shrink-0 text-center overflow-hidden">
+            <span class="text-[9px] font-mono text-slate-300 uppercase tracking-widest font-bold drop-shadow-[0_1px_2px_rgba(0,0,0,1)]">Gear</span>
+            <div id="gear-badge" class="w-11 h-11 rounded-xl bg-rose-950/40 backdrop-blur-sm border border-rose-600/40 flex items-center justify-center mt-1 shadow-[0_2px_8px_rgba(225,29,72,0.4)] transition-all duration-150">
+              <span id="gear-number" class="text-lg font-mono font-black text-rose-500 drop-shadow-[0_2px_4px_rgba(0,0,0,1)]">OFF</span>
+            </div>
+            <span id="shift-status" class="text-[9px] font-mono text-rose-400 mt-1 uppercase tracking-wider font-bold drop-shadow-[0_1px_2px_rgba(0,0,0,1)] text-center leading-tight">ENGINE OFF</span>
+            <div class="mt-2.5 flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-950/60 border border-white/15 text-[8px] font-mono text-slate-300 shadow-[0_1px_4px_rgba(0,0,0,0.5)]">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]"></span>
+              <span class="font-bold tracking-wider">6-SPEED</span>
+            </div>
+          </div>
+
+          <!-- 3. Analog & Digital Speedometer -->
+          <div class="flex flex-col items-center">
+            <!-- Analog Dial -->
+            <div class="relative w-28 h-28 sm:w-32 sm:h-32 flex items-center justify-center">
+              <svg viewBox="0 0 120 120" class="w-full h-full filter drop-shadow-[0_4px_10px_rgba(0,0,0,0.7)] select-none">
+                <defs>
+                  <!-- Translucent smoked glass dial background -->
+                  <radialGradient id="speedo-bg" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stop-color="#020617" stop-opacity="0.30" />
+                    <stop offset="70%" stop-color="#050811" stop-opacity="0.55" />
+                    <stop offset="100%" stop-color="#0f172a" stop-opacity="0.75" />
+                  </radialGradient>
+                  <linearGradient id="speedo-gradient" x1="0%" y1="100%" x2="100%" y2="0%">
+                    <stop offset="0%" stop-color="#06b6d4" />
+                    <stop offset="50%" stop-color="#38bdf8" />
+                    <stop offset="80%" stop-color="#f59e0b" />
+                    <stop offset="100%" stop-color="#f43f5e" />
+                  </linearGradient>
+                  <!-- Needle glow filter for high-contrast visibility -->
+                  <filter id="speedo-needle-glow" x="-30%" y="-30%" width="160%" height="160%">
+                    <feDropShadow dx="0" dy="0" stdDeviation="2.5" flood-color="#00e5ff" flood-opacity="0.9" />
+                    <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#000000" flood-opacity="1" />
+                  </filter>
+                </defs>
+
+                <!-- Gauge Face Glass Disc & Bezel Ring -->
+                <circle cx="60" cy="60" r="56" fill="url(#speedo-bg)" stroke="rgba(255,255,255,0.22)" stroke-width="1.5" />
+                <circle cx="60" cy="60" r="45" fill="none" stroke="rgba(0,0,0,0.5)" stroke-width="4.5" />
+
+                <!-- Inactive Track Arc (Sweep 270 deg from -135 to +135) -->
+                <path d="M 28.18 91.82 A 45 45 0 1 1 91.82 91.82" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="3.5" stroke-linecap="round" />
+
+                <!-- Active Filled Arc (circumference length ~212.06) -->
+                <path id="speedo-arc" d="M 28.18 91.82 A 45 45 0 1 1 91.82 91.82" fill="none" stroke="url(#speedo-gradient)" stroke-width="4" stroke-linecap="round" stroke-dasharray="212.06" stroke-dashoffset="212.06" filter="drop-shadow(0 0 3px rgba(56,189,248,0.6))" />
+
+                <!-- Major Graduation Ticks (0, 40, 80, 120, 160, 200 km/h) -->
+                <g stroke="#ffffff" stroke-width="2" stroke-linecap="round" filter="drop-shadow(0 1px 2px rgba(0,0,0,0.9))">
+                  <line x1="60" y1="16" x2="60" y2="23" transform="rotate(-135 60 60)" />
+                  <line x1="60" y1="16" x2="60" y2="23" transform="rotate(-81 60 60)" />
+                  <line x1="60" y1="16" x2="60" y2="23" transform="rotate(-27 60 60)" />
+                  <line x1="60" y1="16" x2="60" y2="23" transform="rotate(27 60 60)" />
+                  <line x1="60" y1="16" x2="60" y2="23" transform="rotate(81 60 60)" />
+                  <line x1="60" y1="16" x2="60" y2="23" stroke="#f43f5e" transform="rotate(135 60 60)" />
+                </g>
+
+                <!-- Minor Half-Ticks (20, 60, 100, 140, 180 km/h) -->
+                <g stroke="#cbd5e1" stroke-width="1.2" opacity="0.85" filter="drop-shadow(0 1px 1px rgba(0,0,0,0.8))">
+                  <line x1="60" y1="18" x2="60" y2="22" transform="rotate(-108 60 60)" />
+                  <line x1="60" y1="18" x2="60" y2="22" transform="rotate(-54 60 60)" />
+                  <line x1="60" y1="18" x2="60" y2="22" transform="rotate(0 60 60)" />
+                  <line x1="60" y1="18" x2="60" y2="22" transform="rotate(54 60 60)" />
+                  <line x1="60" y1="18" x2="60" y2="22" stroke="#f43f5e" transform="rotate(108 60 60)" />
+                </g>
+
+                <!-- Dial Numbers with Black Protective Halo for Perfect Legibility -->
+                <g font-family="ui-monospace, monospace" font-size="7.5" font-weight="800" text-anchor="middle" style="paint-order: stroke; stroke: #000000; stroke-width: 1.5px; stroke-linejoin: round;">
+                  <text x="38" y="83" fill="#ffffff">0</text>
+                  <text x="29" y="56" fill="#ffffff">40</text>
+                  <text x="46" y="34" fill="#ffffff">80</text>
+                  <text x="74" y="34" fill="#ffffff">120</text>
+                  <text x="91" y="56" fill="#ffffff">160</text>
+                  <text x="82" y="83" fill="#f43f5e">200</text>
+                </g>
+
+                <!-- Dial Center Subtext -->
+                <text x="60" y="52" fill="#38bdf8" font-size="6.5" font-family="ui-monospace, monospace" font-weight="700" text-anchor="middle" letter-spacing="0.5" style="paint-order: stroke; stroke: #000000; stroke-width: 1.2px;">KM/H</text>
+
+                <!-- High-Visibility Glowing Analog Needle Group -->
+                <g id="speedo-needle-group" filter="url(#speedo-needle-glow)" style="transform-origin: 60px 60px; transform: rotate(-135deg);">
+                  <line x1="60" y1="64" x2="60" y2="17" stroke="#00e5ff" stroke-width="2.2" stroke-linecap="round" />
+                  <circle cx="60" cy="60" r="5" fill="#0f172a" stroke="#00e5ff" stroke-width="1.8" />
+                  <circle cx="60" cy="60" r="1.8" fill="#ffffff" />
+                </g>
+              </svg>
+            </div>
+
+            <!-- Digital Readout Below Analog Speedometer (Crystal Clear with Drop Shadows) -->
+            <div class="flex flex-col items-center -mt-1">
+              <div class="flex items-baseline gap-1">
+                <span id="speedometer-value" class="text-xl sm:text-2xl font-mono font-black text-white tabular-nums tracking-tight drop-shadow-[0_2px_4px_rgba(0,0,0,1)]">0</span>
+                <span class="text-[10px] font-mono text-amber-400 font-bold tracking-wider drop-shadow-[0_1px_2px_rgba(0,0,0,1)]">KM/H</span>
+              </div>
+              <span class="text-[9px] font-mono text-slate-300 uppercase tracking-widest font-bold drop-shadow-[0_1px_2px_rgba(0,0,0,1)]">Speedometer</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PWA iOS Safari Install Guidance Modal -->
+    <div id="ios-install-modal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/70 backdrop-blur-sm p-4 pointer-events-auto">
+      <div class="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl text-slate-100 flex flex-col gap-4">
+        <div class="flex items-center gap-3">
+          <img src="/pwa-192x192.png" alt="MIDNIGHT CIRCUIT Icon" class="w-12 h-12 rounded-xl border border-rose-500/50 shadow-lg" />
+          <div>
+            <h3 class="text-base font-bold text-white font-mono">Install MIDNIGHT CIRCUIT</h3>
+            <p class="text-xs text-slate-400">Play offline & fullscreen on your device</p>
+          </div>
+        </div>
+        <div class="text-xs text-slate-300 space-y-2 bg-slate-950/60 p-3.5 rounded-xl border border-white/10 font-mono">
+          <p class="flex items-center gap-2">
+            <span class="w-5 h-5 rounded-full bg-rose-500/20 text-rose-400 font-bold flex items-center justify-center shrink-0">1</span>
+            <span>Tap the <strong class="text-white">Share</strong> button (box with up arrow) in Safari.</span>
+          </p>
+          <p class="flex items-center gap-2">
+            <span class="w-5 h-5 rounded-full bg-rose-500/20 text-rose-400 font-bold flex items-center justify-center shrink-0">2</span>
+            <span>Scroll down and tap <strong class="text-cyan-300">Add to Home Screen</strong>.</span>
+          </p>
+        </div>
+        <button id="close-ios-modal-btn" class="w-full py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white font-mono text-xs font-bold transition-all shadow-lg active:scale-95 cursor-pointer">
+          GOT IT
+        </button>
+      </div>
+    </div>
+
+    <!-- Offline Connectivity Toast -->
+    <div id="offline-toast" class="hidden fixed bottom-4 left-4 z-50 items-center gap-2 rounded-lg bg-amber-500/90 backdrop-blur-md px-3 py-1.5 text-xs font-mono font-medium text-slate-950 shadow-lg border border-amber-300">
+      <span class="h-2 w-2 rounded-full bg-slate-950 animate-pulse"></span>
+      <span>Offline Mode — Simulator ready locally</span>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
+

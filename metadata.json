@@ -1,6 +1,6 @@
 {
-  "name": "MIDNIGHT CIRCUIT",
-  "description": "MIDNIGHT CIRCUIT - High-fidelity interactive 3D physics, Nissan GT-R R35 engine sound synthesizer, and night drive simulator with PWA desktop & mobile installation support.",
+  "name": "MIDNIGHT CIRCUIT - DARKLINES",
+  "description": "MIDNIGHT CIRCUIT - DARKLINES: High-fidelity interactive 3D physics, Nissan GT-R R35 engine sound synthesizer, and night drive simulator with PWA desktop & mobile installation support.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

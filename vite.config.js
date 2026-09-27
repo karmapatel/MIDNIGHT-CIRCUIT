@@ -16,9 +16,9 @@ export default defineConfig(() => {
         includeAssets: ['logo.png', 'logo.svg', 'apple-touch-icon.png', 'favicon-32x32.png', 'icon.svg', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png'],
         manifest: {
           id: '/',
-          name: 'MIDNIGHT CIRCUIT GT-R',
-          short_name: 'GT-R DRIVER',
-          description: 'MIDNIGHT CIRCUIT - High-fidelity interactive 3D physics, Nissan GT-R R35 engine sound synthesizer, and night drive simulator.',
+          name: 'MIDNIGHT CIRCUIT - DARKLINES',
+          short_name: 'DARKLINES',
+          description: 'MIDNIGHT CIRCUIT - DARKLINES: High-fidelity interactive 3D physics, Nissan GT-R R35 engine sound synthesizer, and night drive simulator.',
           theme_color: '#090d16',
           background_color: '#090d16',
           display: 'standalone',

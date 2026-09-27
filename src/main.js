@@ -3525,21 +3525,21 @@ function playOverrunBurble() {
 
   try {
     const sampleRate = audioCtx.sampleRate;
-    const len = Math.floor(sampleRate * 0.085);
+    const len = Math.floor(sampleRate * 0.075);
     const buf = audioCtx.createBuffer(1, len, sampleRate);
     const d = buf.getChannelData(0);
     for (let i = 0; i < len; i++) {
-      d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (sampleRate * 0.025));
+      d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (sampleRate * 0.022));
     }
     const src = audioCtx.createBufferSource();
     src.buffer = buf;
     const filter = audioCtx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(450 + Math.random() * 280, now);
+    filter.frequency.setValueAtTime(360 + Math.random() * 220, now);
 
     const g = audioCtx.createGain();
-    g.gain.setValueAtTime(0.18 + Math.random() * 0.12, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.075);
+    g.gain.setValueAtTime(0.07 + Math.random() * 0.05, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
 
     src.connect(filter);
     filter.connect(g);

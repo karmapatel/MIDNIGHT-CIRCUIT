@@ -55,6 +55,12 @@
             <span id="lights-dot" class="inline-block w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]"></span>
             <span id="lights-text">LIGHTS ON (L)</span>
           </button>
+          <button id="camera-indicator" class="text-indigo-300 hover:text-indigo-200 flex items-center gap-1.5 font-mono text-xs font-semibold cursor-pointer pointer-events-auto bg-slate-900/80 hover:bg-slate-800 px-3 py-1.5 rounded-full border border-indigo-500/40 hover:border-indigo-400 shadow-[0_0_12px_rgba(99,102,241,0.25)] transition-all active:scale-95 select-none" title="Switch Camera View (V)">
+            <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            <span id="camera-text">CAM: NORMAL (V)</span>
+          </button>
           <button id="garage-btn" class="pointer-events-auto hidden items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900/80 hover:bg-slate-800 text-amber-300 font-mono text-xs font-semibold border border-amber-500/40 hover:border-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.25)] transition-all active:scale-95 cursor-pointer select-none" title="Return to Garage (G)">
             <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
@@ -64,58 +70,10 @@
         </div>
       </div>
 
-      <!-- Bottom controls hint & speedometer -->
-      <div class="flex items-end justify-between">
-        <!-- Minimal controls helper -->
-        <div id="controls-hint" class="flex flex-col gap-1.5 text-xs text-slate-400 bg-slate-900/60 backdrop-blur-md px-3.5 py-2.5 rounded-lg border border-white/10 transition-opacity duration-700">
-          <div class="flex items-center gap-2">
-            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">W</span>
-            <span class="text-slate-300">/</span>
-            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">▲</span>
-            <span>Accelerate</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">S</span>
-            <span class="text-slate-300">/</span>
-            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">▼</span>
-            <span>Brake / Reverse</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="bg-amber-500/20 text-amber-300 font-mono px-1.5 py-0.5 rounded text-[11px] border border-amber-500/40">\</span>
-            <span class="text-amber-200 font-medium">Clutch (Hold + W to Rev)</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="bg-amber-500/20 text-amber-300 font-mono px-1.5 py-0.5 rounded text-[11px] border border-amber-500/40">W+SPACE</span>
-            <span class="text-amber-200 font-medium">Launch Control</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">A</span>
-            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">D</span>
-            <span class="text-slate-300">/</span>
-            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">◄</span>
-            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">►</span>
-            <span>Steer</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">E</span>
-            <span>Engine Start / Stop</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">L</span>
-            <span>Toggle Headlights</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">M</span>
-            <span>Toggle Audio</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="bg-amber-500/20 text-amber-300 font-mono px-1.5 py-0.5 rounded text-[11px] border border-amber-500/40">G</span>
-            <span class="text-amber-200">Return to Garage</span>
-          </div>
-        </div>
-
+      <!-- Bottom speedometer & instrument cluster -->
+      <div class="flex items-end justify-end">
         <!-- Sport Instrument Cluster: Transparent Analog & Digital Twin Gauges -->
-        <div class="flex items-center gap-3 sm:gap-5 bg-slate-950/20 hover:bg-slate-950/30 backdrop-blur-[2px] px-3 sm:px-5 py-2.5 rounded-2xl border border-white/15 shadow-[0_8px_32px_rgba(0,0,0,0.5)] select-none transition-colors duration-200">
+        <div id="sport-instrument-cluster" class="flex items-center gap-3 sm:gap-5 bg-slate-950/20 hover:bg-slate-950/30 backdrop-blur-[2px] px-3 sm:px-5 py-2.5 rounded-2xl border border-white/15 shadow-[0_8px_32px_rgba(0,0,0,0.5)] select-none transition-all duration-300">
           <!-- 1. Analog & Digital Tachometer (RPM Meter) -->
           <div class="flex flex-col items-center">
             <!-- Analog Dial -->

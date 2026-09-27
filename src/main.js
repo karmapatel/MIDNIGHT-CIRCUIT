@@ -37,14 +37,258 @@ const offlineToastEl = document.getElementById('offline-toast');
 const garageExitPromptEl = document.getElementById('garage-exit-prompt');
 const transitionOverlayEl = document.getElementById('scene-transition-overlay');
 const garageBtnEl = document.getElementById('garage-btn');
+const cameraIndicatorEl = document.getElementById('camera-indicator');
+const cameraTextEl = document.getElementById('camera-text');
 
 // --- Game & Garage Environment State ---
 let inGarage = true;          // Player starts inside the 3D Underground Garage!
 let canExitGarage = false;    // True when GT-R R35 reaches the garage exit zone
 let isSceneTransitioning = false;
+let cameraMode = 'normal';    // 'normal' or 'cockpit'
+let carCabinMesh = null;
 let garageGroup = null;
 let garageDoorMesh = null;
 const ceilingLights = [];     // Array tracking cool blue flickering industrial light fixtures
+
+// --- Cockpit Digital Dashboard Telemetry Texture ---
+let cockpitDisplayCanvas = null;
+let cockpitDisplayCtx = null;
+let cockpitDisplayTexture = null;
+
+function initCockpitDisplayTexture() {
+  if (cockpitDisplayCanvas) return;
+  cockpitDisplayCanvas = document.createElement('canvas');
+  cockpitDisplayCanvas.width = 1024;
+  cockpitDisplayCanvas.height = 512;
+  cockpitDisplayCtx = cockpitDisplayCanvas.getContext('2d');
+
+  cockpitDisplayTexture = new THREE.CanvasTexture(cockpitDisplayCanvas);
+  cockpitDisplayTexture.minFilter = THREE.LinearFilter;
+  cockpitDisplayTexture.magFilter = THREE.LinearFilter;
+}
+
+function updateCockpitDisplays() {
+  if (!cockpitDisplayCtx || !cockpitDisplayTexture) return;
+
+  const ctx = cockpitDisplayCtx;
+  const w = 1024;
+  const h = 512;
+
+  // Dark midnight carbon backdrop
+  ctx.fillStyle = '#050811';
+  ctx.fillRect(0, 0, w, h);
+
+  const kmh = Math.round(Math.abs(carState.speed) * 3.6);
+  const rpm = Math.round(carState.rpm);
+  const isRedline = rpm >= 6800;
+
+  // Helper to convert angle (deg) to radians
+  const toRad = (deg) => (deg * Math.PI) / 180;
+
+  // -------------------------------------------------------------
+  // 1. LEFT GAUGE: ROUND TACHOMETER (RPM x1000 Meter)
+  // -------------------------------------------------------------
+  const tachoCenterX = 260;
+  const tachoCenterY = 256;
+  const gaugeRadius = 192;
+
+  // Dark Gauge Dial Base
+  ctx.beginPath();
+  ctx.arc(tachoCenterX, tachoCenterY, gaugeRadius, 0, Math.PI * 2);
+  ctx.fillStyle = '#0b1120';
+  ctx.fill();
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = '#1e293b';
+  ctx.stroke();
+
+  // Redline Arc (6.8k to 8k RPM => -6° to 30°)
+  ctx.beginPath();
+  ctx.arc(tachoCenterX, tachoCenterY, gaugeRadius - 16, toRad(-6), toRad(30));
+  ctx.lineWidth = 18;
+  ctx.strokeStyle = '#ef4444';
+  ctx.stroke();
+
+  // Tachometer Dial Ticks & Bold Numbers (0 to 8 x1000 RPM)
+  for (let i = 0; i <= 8; i++) {
+    const angleDeg = -210 + (i / 8) * 240;
+    const rad = toRad(angleDeg);
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+
+    const innerR = gaugeRadius - 32;
+    const outerR = gaugeRadius - 12;
+    ctx.beginPath();
+    ctx.moveTo(tachoCenterX + cos * innerR, tachoCenterY + sin * innerR);
+    ctx.lineTo(tachoCenterX + cos * outerR, tachoCenterY + sin * outerR);
+    ctx.lineWidth = i >= 7 ? 6 : 4;
+    ctx.strokeStyle = i >= 7 ? '#f87171' : '#38bdf8';
+    ctx.stroke();
+
+    // Bold Number text
+    const textR = gaugeRadius - 56;
+    const tx = tachoCenterX + cos * textR;
+    const ty = tachoCenterY + sin * textR + 10;
+    ctx.fillStyle = i >= 7 ? '#ef4444' : '#f8fafc';
+    ctx.font = 'bold 32px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${i}`, tx, ty);
+  }
+
+  // Label "x1000 RPM"
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = 'bold 22px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('x1000 RPM', tachoCenterX, tachoCenterY + 84);
+
+  // Tachometer Sweeping Red Glowing Needle
+  const rpmRatio = Math.min(1.0, Math.max(0, rpm / 8000));
+  const tachoNeedleDeg = -210 + rpmRatio * 240;
+  const tachoNeedleRad = toRad(tachoNeedleDeg);
+
+  ctx.beginPath();
+  ctx.moveTo(tachoCenterX, tachoCenterY);
+  ctx.lineTo(
+    tachoCenterX + Math.cos(tachoNeedleRad) * (gaugeRadius - 24),
+    tachoCenterY + Math.sin(tachoNeedleRad) * (gaugeRadius - 24)
+  );
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = isRedline ? '#f87171' : '#ef4444';
+  ctx.shadowColor = '#ef4444';
+  ctx.shadowBlur = 16;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Needle Hub Cap
+  ctx.beginPath();
+  ctx.arc(tachoCenterX, tachoCenterY, 20, 0, Math.PI * 2);
+  ctx.fillStyle = '#334155';
+  ctx.fill();
+  ctx.strokeStyle = '#64748b';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+
+  // -------------------------------------------------------------
+  // 2. RIGHT GAUGE: ROUND SPEEDOMETER (KM/H Meter)
+  // -------------------------------------------------------------
+  const speedoCenterX = 764;
+  const speedoCenterY = 256;
+
+  // Dark Gauge Dial Base
+  ctx.beginPath();
+  ctx.arc(speedoCenterX, speedoCenterY, gaugeRadius, 0, Math.PI * 2);
+  ctx.fillStyle = '#0b1120';
+  ctx.fill();
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = '#1e293b';
+  ctx.stroke();
+
+  // Speedometer Dial Ticks & Bold Numbers (0 to 320 KM/H)
+  const speedoSteps = 8; // 0, 40, 80, 120, 160, 200, 240, 280, 320
+  for (let i = 0; i <= speedoSteps; i++) {
+    const val = i * 40;
+    const angleDeg = -210 + (i / speedoSteps) * 240;
+    const rad = toRad(angleDeg);
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+
+    const innerR = gaugeRadius - 32;
+    const outerR = gaugeRadius - 12;
+    ctx.beginPath();
+    ctx.moveTo(speedoCenterX + cos * innerR, speedoCenterY + sin * innerR);
+    ctx.lineTo(speedoCenterX + cos * outerR, speedoCenterY + sin * outerR);
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#38bdf8';
+    ctx.stroke();
+
+    // Bold Number text
+    const textR = gaugeRadius - 56;
+    const tx = speedoCenterX + cos * textR;
+    const ty = speedoCenterY + sin * textR + 10;
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = 'bold 24px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${val}`, tx, ty);
+  }
+
+  // Label "KM/H"
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = 'bold 22px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('KM/H', speedoCenterX, speedoCenterY + 84);
+
+  // Speedometer Sweeping Cyan Glowing Needle
+  const speedRatio = Math.min(1.0, Math.max(0, kmh / 320));
+  const speedNeedleDeg = -210 + speedRatio * 240;
+  const speedNeedleRad = toRad(speedNeedleDeg);
+
+  ctx.beginPath();
+  ctx.moveTo(speedoCenterX, speedoCenterY);
+  ctx.lineTo(
+    speedoCenterX + Math.cos(speedNeedleRad) * (gaugeRadius - 24),
+    speedoCenterY + Math.sin(speedNeedleRad) * (gaugeRadius - 24)
+  );
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = '#38bdf8';
+  ctx.shadowColor = '#38bdf8';
+  ctx.shadowBlur = 16;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Needle Hub Cap
+  ctx.beginPath();
+  ctx.arc(speedoCenterX, speedoCenterY, 20, 0, Math.PI * 2);
+  ctx.fillStyle = '#334155';
+  ctx.fill();
+  ctx.strokeStyle = '#64748b';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+
+  // -------------------------------------------------------------
+  // 3. CENTER DIGITAL DISPLAY (Between the two round meters)
+  // -------------------------------------------------------------
+  const centerBoxX = 456;
+  const centerBoxY = 96;
+  const centerBoxW = 112;
+  const centerBoxH = 320;
+
+  ctx.fillStyle = '#030712';
+  ctx.fillRect(centerBoxX, centerBoxY, centerBoxW, centerBoxH);
+  ctx.strokeStyle = '#0284c7';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(centerBoxX, centerBoxY, centerBoxW, centerBoxH);
+
+  // GEAR Label & Value
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = 'bold 20px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('GEAR', 512, 136);
+
+  let gearVal = `${carState.currentGear}`;
+  if (!carState.engineRunning) gearVal = 'OFF';
+  else if (carState.isLaunchControl) gearVal = 'LC';
+  else if (carState.speed < -0.2) gearVal = 'R';
+  else if (kmh < 1 && !keys.forward) gearVal = 'P';
+
+  ctx.fillStyle = gearVal === 'OFF' ? '#ef4444' : '#fef08a';
+  ctx.font = '900 56px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(gearVal, 512, 204);
+
+  // Digital Speed readout
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = '900 40px monospace';
+  ctx.fillText(`${kmh}`, 512, 284);
+  ctx.font = 'bold 18px monospace';
+  ctx.fillText('KM/H', 512, 312);
+
+  // Boost bar
+  const boost = (speedRatio * 1.35).toFixed(1);
+  ctx.fillStyle = '#22c55e';
+  ctx.font = 'bold 18px monospace';
+  ctx.fillText(`${boost} BAR`, 512, 364);
+
+  cockpitDisplayTexture.needsUpdate = true;
+}
 
 // --- Web Audio Synth Variables ---
 let audioCtx = null;
@@ -1227,10 +1471,10 @@ function buildCar() {
 
   // Aerodynamic Tapered Cockpit Greenhouse Glass
   const cabinGeo = new THREE.BoxGeometry(1.48, 0.54, 2.22);
-  const cabin = new THREE.Mesh(cabinGeo, carGlassMat);
-  cabin.position.set(0, 0.86, 0.12);
-  cabin.castShadow = true;
-  carChassis.add(cabin);
+  carCabinMesh = new THREE.Mesh(cabinGeo, carGlassMat);
+  carCabinMesh.position.set(0, 0.86, 0.12);
+  carCabinMesh.castShadow = true;
+  carChassis.add(carCabinMesh);
 
   // Flat Sloping Metallic Roof Shell
   const roofGeo = new THREE.BoxGeometry(1.38, 0.06, 1.48);
@@ -1262,31 +1506,151 @@ function buildCar() {
   trunkLid.position.set(0, 0.68, 1.88);
   carChassis.add(trunkLid);
 
-  // Interior: Dashboard & GT-R Multi-Function Screen Console
-  const dashGeo = new THREE.BoxGeometry(1.35, 0.18, 0.45);
-  const dash = new THREE.Mesh(dashGeo, carbonMat);
-  dash.position.set(0, 0.74, -0.58);
-  carChassis.add(dash);
+  // -----------------------------------------------------------
+  // JDM Right-Hand Drive (RHD) Nissan GT-R R35 Detailed Cockpit
+  // -----------------------------------------------------------
+  initCockpitDisplayTexture();
 
-  // Center Multi-Function Display (Designed by Polyphony Digital on the real R35)
-  const mfdScreen = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.02), new THREE.MeshBasicMaterial({ color: 0x0284c7 }));
-  mfdScreen.position.set(0, 0.84, -0.48);
-  carChassis.add(mfdScreen);
+  const leatherMat = new THREE.MeshStandardMaterial({ color: 0x17191e, roughness: 0.6, metalness: 0.2 });
+  const alcantaraMat = new THREE.MeshStandardMaterial({ color: 0x0a0c10, roughness: 0.92, metalness: 0.08 });
+  const aluminumTrimMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.92, roughness: 0.15 });
+  const mfdScreenMat = new THREE.MeshBasicMaterial({ map: cockpitDisplayTexture });
 
-  const wheelTorus = new THREE.TorusGeometry(0.14, 0.025, 8, 18);
-  interiorSteeringWheel = new THREE.Mesh(wheelTorus, carbonMat);
-  interiorSteeringWheel.position.set(-0.35, 0.82, -0.42);
-  interiorSteeringWheel.rotation.x = 0.4;
+  // 1. Full Dark Alcantara Interior Deck (Encases mainHull top surface y=0.65 cleanly from y=0.54 to y=0.70)
+  const dashDeckGeo = new THREE.BoxGeometry(1.76, 0.16, 1.30);
+  const dashDeck = new THREE.Mesh(dashDeckGeo, alcantaraMat);
+  dashDeck.position.set(0, 0.62, -0.20);
+  carChassis.add(dashDeck);
+
+  // 2. Windshield Base Cowl Line (Clean, realistic boundary dividing dark interior deck from blue exterior hood at z=-0.85)
+  const windshieldCowl = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.04, 0.08), leatherMat);
+  windshieldCowl.position.set(0, 0.70, -0.85);
+  carChassis.add(windshieldCowl);
+
+  // 3. Elevated Recessed Instrument Cluster Pod Housing (Shifted higher up for prominent visibility)
+  const clusterHousingGeo = new THREE.BoxGeometry(0.38, 0.16, 0.06);
+  const clusterHousing = new THREE.Mesh(clusterHousingGeo, leatherMat);
+  clusterHousing.position.set(0.38, 0.83, -0.50);
+  clusterHousing.rotation.x = -0.06;
+  carChassis.add(clusterHousing);
+
+  // High-Resolution Tachometer & Speedometer Display Screen
+  const clusterDisplayMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(0.35, 0.15, 0.01),
+    mfdScreenMat
+  );
+  clusterDisplayMesh.position.set(0.38, 0.83, -0.47);
+  clusterDisplayMesh.rotation.x = -0.06;
+  carChassis.add(clusterDisplayMesh);
+
+  // 4. RHD JDM Steering Wheel Assembly (+0.38 X Offset)
+  interiorSteeringWheel = new THREE.Group();
+  interiorSteeringWheel.position.set(0.38, 0.72, -0.38);
+  interiorSteeringWheel.rotation.x = 0.28;
+
+  // Leather Outer Rim
+  const wheelTorus = new THREE.TorusGeometry(0.14, 0.02, 12, 28);
+  const wheelRim = new THREE.Mesh(wheelTorus, leatherMat);
+  interiorSteeringWheel.add(wheelRim);
+
+  // 3-Spoke Metallic Hub
+  [-Math.PI / 2, 0.55, Math.PI - 0.55].forEach((angle) => {
+    const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.025, 0.016), aluminumTrimMat);
+    spoke.rotation.z = angle;
+    interiorSteeringWheel.add(spoke);
+  });
+
+  // Red Anodized GT-R Center Emblem Badge
+  const gtrBadge = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.032, 0.032, 0.02, 16),
+    gtrRedMat
+  );
+  gtrBadge.rotation.x = Math.PI / 2;
+  interiorSteeringWheel.add(gtrBadge);
+
+  // Titanium Paddle Shifters behind wheel
+  const paddleL = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.10, 0.012), aluminumTrimMat);
+  paddleL.position.set(-0.14, 0.02, -0.025);
+  interiorSteeringWheel.add(paddleL);
+  const paddleR = paddleL.clone();
+  paddleR.position.x = 0.14;
+  interiorSteeringWheel.add(paddleR);
+
+  // Steering Column Shaft
+  const steeringColumn = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 0.26, 12), alcantaraMat);
+  steeringColumn.rotation.x = 0.25;
+  steeringColumn.position.set(0, -0.08, -0.10);
+  interiorSteeringWheel.add(steeringColumn);
+
   carChassis.add(interiorSteeringWheel);
 
-  // Interior: Recaro GT-R Sports Bucket Seats
-  const seatGeo = new THREE.BoxGeometry(0.42, 0.52, 0.42);
-  const seatL = new THREE.Mesh(seatGeo, carbonMat);
-  seatL.position.set(-0.35, 0.72, 0.05);
-  carChassis.add(seatL);
-  const seatR = seatL.clone();
-  seatR.position.x = 0.35;
-  carChassis.add(seatR);
+  // Center Console & Dark Metallic Panel (No Duplicate Gauge Screen)
+  const centerConsole = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.20, 0.75), leatherMat);
+  centerConsole.position.set(0, 0.44, -0.25);
+  carChassis.add(centerConsole);
+
+  // Sleek Carbon Center Trim Screen (Non-Duplicating Dark Polyphony Display)
+  const mfdScreen = new THREE.Mesh(
+    new THREE.BoxGeometry(0.22, 0.12, 0.02),
+    new THREE.MeshStandardMaterial({ color: 0x050811, roughness: 0.3, metalness: 0.8 })
+  );
+  mfdScreen.position.set(0, 0.54, -0.62);
+  mfdScreen.rotation.x = -0.15;
+  carChassis.add(mfdScreen);
+
+  // Short-Throw Dual-Clutch Gear Shift Lever
+  const shifterBase = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.04, 12), alcantaraMat);
+  shifterBase.position.set(0, 0.58, -0.25);
+  carChassis.add(shifterBase);
+
+  const shifterKnob = new THREE.Mesh(new THREE.SphereGeometry(0.035, 12, 12), aluminumTrimMat);
+  shifterKnob.position.set(0, 0.65, -0.25);
+  carChassis.add(shifterKnob);
+
+  // Red Anodized Engine Start Button on Center Console
+  const startBtnInterior = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.025, 0.025, 0.02, 16),
+    gtrRedMat
+  );
+  startBtnInterior.position.set(0.09, 0.58, -0.32);
+  carChassis.add(startBtnInterior);
+
+  // Center Windshield Interior Rear-View Mirror (Facing Rearward Toward Driver)
+  const mirrorGroup = new THREE.Group();
+  mirrorGroup.position.set(0, 1.15, -0.52);
+
+  const mirrorStem = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.06, 8), alcantaraMat);
+  mirrorStem.rotation.x = 0.2;
+  mirrorGroup.add(mirrorStem);
+
+  const mirrorHousing = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.075, 0.02), alcantaraMat);
+  mirrorHousing.position.set(0, -0.035, -0.01);
+  mirrorGroup.add(mirrorHousing);
+
+  const mirrorGlassMat = new THREE.MeshStandardMaterial({
+    color: 0x38bdf8,
+    metalness: 0.95,
+    roughness: 0.08,
+  });
+  const mirrorGlass = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.068, 0.005), mirrorGlassMat);
+  mirrorGlass.position.set(0, -0.035, 0.005); // Face +Z rearward towards driver!
+  mirrorGlass.rotation.y = -0.12; // Angle slightly toward RHD driver
+  mirrorGroup.add(mirrorGlass);
+
+  carChassis.add(mirrorGroup);
+
+  // Interior: Recaro GT-R Sports Bucket Seats (Right Driver + Left Passenger)
+  const seatGeo = new THREE.BoxGeometry(0.44, 0.54, 0.44);
+
+  // Driver Seat on RIGHT Side (+0.36)
+  const seatDriver = new THREE.Mesh(seatGeo, leatherMat);
+  seatDriver.position.set(0.36, 0.64, 0.05);
+  carChassis.add(seatDriver);
+
+  // Passenger Seat on LEFT Side (-0.36)
+  const seatPass = new THREE.Mesh(seatGeo, leatherMat);
+  seatPass.position.set(-0.36, 0.64, 0.05);
+  carChassis.add(seatPass);
 
   // -----------------------------------------------------------
   // C. Nissan GT-R R35 High-Mount Carbon Rear Wing & Spoiler
@@ -3781,6 +4145,13 @@ function setupInputListeners() {
     });
   }
 
+  if (cameraIndicatorEl) {
+    cameraIndicatorEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleCameraMode();
+    });
+  }
+
   if (engineBtnEl) {
     engineBtnEl.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -3911,6 +4282,10 @@ function setupInputListeners() {
         toggleAudio();
         e.preventDefault();
         break;
+      case 'KeyV':
+        toggleCameraMode();
+        e.preventDefault();
+        break;
       case 'KeyG':
         if (!inGarage && !isSceneTransitioning) {
           returnToGarageFromHighway();
@@ -3939,6 +4314,10 @@ function setupInputListeners() {
     }
     if ((e.key === 'm' || e.key === 'M') && e.code !== 'KeyM') {
       toggleAudio();
+      e.preventDefault();
+    }
+    if ((e.key === 'v' || e.key === 'V') && e.code !== 'KeyV') {
+      toggleCameraMode();
       e.preventDefault();
     }
     // If driver tries to accelerate or reverse while engine is turned off, pulse the engine start button
@@ -4450,7 +4829,7 @@ function updateCarPhysics(dt) {
   steerPivots.fr.rotation.y = carState.steerAngle * 1.4;
 
   if (interiorSteeringWheel) {
-    interiorSteeringWheel.rotation.z = -carState.steerAngle * 3.5;
+    interiorSteeringWheel.rotation.z = carState.steerAngle * 3.5;
   }
 
   // 8. Suspension Pitch & Roll with Organic Gear Shift Wave (Upshift only)
@@ -4565,44 +4944,119 @@ function updateCarPhysics(dt) {
 }
 
 // -------------------------------------------------------------
-// Cinematic Third-Person Chase Camera with Smooth Speed Zoom Pullback
+// Dual Camera System: Normal Mode & Cockpit Mode
 // -------------------------------------------------------------
+function toggleCameraMode() {
+  cameraMode = (cameraMode === 'normal') ? 'cockpit' : 'normal';
+  if (cameraTextEl) {
+    cameraTextEl.textContent = (cameraMode === 'cockpit') ? 'CAM: COCKPIT (V)' : 'CAM: NORMAL (V)';
+  }
+  const sportClusterEl = document.getElementById('sport-instrument-cluster');
+  if (sportClusterEl) {
+    sportClusterEl.style.display = (cameraMode === 'cockpit') ? 'none' : 'flex';
+  }
+  if (cameraIndicatorEl) {
+    if (cameraMode === 'cockpit') {
+      cameraIndicatorEl.className = 'text-cyan-300 flex items-center gap-1.5 font-mono text-xs font-semibold cursor-pointer pointer-events-auto bg-cyan-950/80 px-3 py-1.5 rounded-full border border-cyan-400/80 shadow-[0_0_15px_rgba(6,182,212,0.4)] transition-all active:scale-95 select-none';
+    } else {
+      cameraIndicatorEl.className = 'text-indigo-300 hover:text-indigo-200 flex items-center gap-1.5 font-mono text-xs font-semibold cursor-pointer pointer-events-auto bg-slate-900/80 hover:bg-slate-800 px-3 py-1.5 rounded-full border border-indigo-500/40 hover:border-indigo-400 shadow-[0_0_12px_rgba(99,102,241,0.25)] transition-all active:scale-95 select-none';
+    }
+  }
+}
+
 function updateCamera(dt) {
   if (!camera || !carState) return;
 
-  // Smooth heading interpolation for fluid steering turns
-  const headingDiff = carState.heading - cameraFollow.smoothHeading;
-  cameraFollow.smoothHeading += headingDiff * Math.min(1.0, 14.0 * dt);
+  const sportClusterEl = document.getElementById('sport-instrument-cluster');
 
-  // Smooth exponential filter for speed ratio (eliminates abrupt jumps / rubber-banding)
-  const targetSpeedRatio = Math.min(1.0, Math.abs(carState.speed) / carState.maxForwardSpeed);
-  cameraFollow.smoothSpeedRatio += (targetSpeedRatio - cameraFollow.smoothSpeedRatio) * Math.min(1.0, 4.5 * dt);
+  if (cameraMode === 'cockpit') {
+    // Hide outer glass volume & 2D HUD so cockpit view is unobstructed
+    if (carCabinMesh) carCabinMesh.visible = false;
+    if (sportClusterEl && sportClusterEl.style.display !== 'none') {
+      sportClusterEl.style.display = 'none';
+    }
 
-  // Organic, progressive speed-dependent pullback & elevation curve
-  const currentDist = cameraFollow.baseDistance + cameraFollow.smoothSpeedRatio * cameraFollow.maxPullback;
-  const currentHeight = cameraFollow.baseHeight + cameraFollow.smoothSpeedRatio * cameraFollow.maxHeightRise;
-  const currentLookAhead = cameraFollow.lookAhead + cameraFollow.smoothSpeedRatio * cameraFollow.maxLookAheadExtend;
+    // ---------------------------------------------------------
+    // COCKPIT MODE — First-Person Driver's Perspective
+    // ---------------------------------------------------------
+    if (camera.near !== 0.02) {
+      camera.near = 0.02;
+      camera.updateProjectionMatrix();
+    }
 
-  const forwardX = -Math.sin(cameraFollow.smoothHeading);
-  const forwardZ = -Math.cos(cameraFollow.smoothHeading);
+    const speedKmh = Math.abs(carState.speed) * 3.6;
 
-  // Direct world positioning relative to car maintains solid lock with smooth dynamic framing
-  const camX = carState.position.x - forwardX * currentDist;
-  const camY = carState.position.y + currentHeight;
-  const camZ = carState.position.z - forwardZ * currentDist;
+    // Organic speed & engine RPM micro-vibration
+    const speedRumble = (speedKmh / 200) * 0.002;
+    const rpmRumble = (carState.rpm / 7000) * 0.0012;
+    const rumbleX = (Math.random() - 0.5) * (speedRumble + rpmRumble);
+    const rumbleY = (Math.random() - 0.5) * (speedRumble + rpmRumble);
 
-  const lookX = carState.position.x + forwardX * currentLookAhead;
-  const lookY = carState.position.y + cameraFollow.lookHeight;
-  const lookZ = carState.position.z + forwardZ * currentLookAhead;
+    // Seated driver perspective locked 1:1 in local space to carChassis
+    // Positioned at driver eye level (x = 0.38, y = 0.96, z = -0.15) looking through steering wheel
+    const eyeLocal = new THREE.Vector3(0.38 + rumbleX, 0.96 + rumbleY, -0.15);
+    const lookLocal = new THREE.Vector3(0.38, 0.84, -12.0);
 
-  camera.position.set(camX, camY, camZ);
-  camera.lookAt(lookX, lookY, lookZ);
+    const camWorldPos = carChassis.localToWorld(eyeLocal.clone());
+    const camLookTarget = carChassis.localToWorld(lookLocal.clone());
 
-  // Smooth dynamic speed FOV expansion (widens peripheral vision from 54° to 66° smoothly as speed builds)
-  const targetFov = cameraFollow.baseFov + cameraFollow.smoothSpeedRatio * cameraFollow.maxFovExtend;
-  if (Math.abs(camera.fov - targetFov) > 0.04) {
-    camera.fov = targetFov;
-    camera.updateProjectionMatrix();
+    camera.position.copy(camWorldPos);
+    camera.lookAt(camLookTarget);
+
+    // Realistic natural cockpit FOV (70° to 78° with speed build)
+    const targetFov = 70.0 + (speedKmh / 200.0) * 8.0;
+    if (Math.abs(camera.fov - targetFov) > 0.05) {
+      camera.fov = targetFov;
+      camera.updateProjectionMatrix();
+    }
+  } else {
+    // Show outer glass volume & 2D HUD in Normal chase mode
+    if (carCabinMesh) carCabinMesh.visible = true;
+    if (sportClusterEl && sportClusterEl.style.display !== 'flex') {
+      sportClusterEl.style.display = 'flex';
+    }
+    // ---------------------------------------------------------
+    // NORMAL MODE — Existing Mode (DO NOT MODIFY IT)
+    // ---------------------------------------------------------
+    if (camera.near !== 0.1) {
+      camera.near = 0.1;
+      camera.updateProjectionMatrix();
+    }
+
+    // Smooth heading interpolation for fluid steering turns
+    const headingDiff = carState.heading - cameraFollow.smoothHeading;
+    cameraFollow.smoothHeading += headingDiff * Math.min(1.0, 14.0 * dt);
+
+    // Smooth exponential filter for speed ratio (eliminates abrupt jumps / rubber-banding)
+    const targetSpeedRatio = Math.min(1.0, Math.abs(carState.speed) / carState.maxForwardSpeed);
+    cameraFollow.smoothSpeedRatio += (targetSpeedRatio - cameraFollow.smoothSpeedRatio) * Math.min(1.0, 4.5 * dt);
+
+    // Organic, progressive speed-dependent pullback & elevation curve
+    const currentDist = cameraFollow.baseDistance + cameraFollow.smoothSpeedRatio * cameraFollow.maxPullback;
+    const currentHeight = cameraFollow.baseHeight + cameraFollow.smoothSpeedRatio * cameraFollow.maxHeightRise;
+    const currentLookAhead = cameraFollow.lookAhead + cameraFollow.smoothSpeedRatio * cameraFollow.maxLookAheadExtend;
+
+    const forwardX = -Math.sin(cameraFollow.smoothHeading);
+    const forwardZ = -Math.cos(cameraFollow.smoothHeading);
+
+    // Direct world positioning relative to car maintains solid lock with smooth dynamic framing
+    const camX = carState.position.x - forwardX * currentDist;
+    const camY = carState.position.y + currentHeight;
+    const camZ = carState.position.z - forwardZ * currentDist;
+
+    const lookX = carState.position.x + forwardX * currentLookAhead;
+    const lookY = carState.position.y + cameraFollow.lookHeight;
+    const lookZ = carState.position.z + forwardZ * currentLookAhead;
+
+    camera.position.set(camX, camY, camZ);
+    camera.lookAt(lookX, lookY, lookZ);
+
+    // Smooth dynamic speed FOV expansion (widens peripheral vision from 54° to 66° smoothly as speed builds)
+    const targetFov = cameraFollow.baseFov + cameraFollow.smoothSpeedRatio * cameraFollow.maxFovExtend;
+    if (Math.abs(camera.fov - targetFov) > 0.04) {
+      camera.fov = targetFov;
+      camera.updateProjectionMatrix();
+    }
   }
 }
 
@@ -4622,6 +5076,8 @@ let lastHUDPState = {
 };
 
 function updateHUD() {
+  updateCockpitDisplays();
+
   const kmh = Math.round(Math.abs(carState.speed) * 3.6);
   if (kmh !== lastHUDPState.kmh) {
     lastHUDPState.kmh = kmh;

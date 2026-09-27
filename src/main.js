@@ -3161,26 +3161,35 @@ function initAudio() {
     skidCarcassFilter.connect(skidCarcassGain);
     skidCarcassGain.connect(masterGain);
 
-    // Pre-generate static pop audio buffers pool (eliminates GC pauses during driving)
+    // Pre-generate clean, organic acoustic pop audio buffers pool
     if (popBuffers.length === 0) {
       const sampleRate = audioCtx.sampleRate;
-      for (let pIdx = 0; pIdx < 8; pIdx++) {
+      for (let pIdx = 0; pIdx < 10; pIdx++) {
         const isB = pIdx % 2 === 0;
-        const duration = isB ? 0.070 : 0.052;
+        const duration = isB ? 0.080 : 0.055;
         const bufferLen = Math.floor(sampleRate * duration);
         const pBuf = audioCtx.createBuffer(1, bufferLen, sampleRate);
         const data = pBuf.getChannelData(0);
-        const tubeResFreq = isB ? (390 + (pIdx * 15)) : (310 + (pIdx * 12));
-        const omega = 2 * Math.PI * tubeResFreq / sampleRate;
+
+        // Organic combustion frequencies: low-frequency thump + turbulent exhaust gas
+        const fThump = isB ? (65 + pIdx * 6) : (85 + pIdx * 8);
+        const fRes = isB ? (240 + pIdx * 15) : (320 + pIdx * 20);
 
         for (let i = 0; i < bufferLen; i++) {
           const t = i / sampleRate;
-          const attack = Math.min(1.0, t / 0.0005);
-          const decay = Math.exp(-t / (isB ? 0.014 : 0.0095));
+          const attack = Math.min(1.0, t / 0.0002);
+          const decay = Math.exp(-t / (isB ? 0.016 : 0.010));
           const env = attack * decay;
-          const standingWave = Math.sin(omega * i) * 0.52;
-          const turbulentGas = (Math.random() * 2 - 1) * 0.48;
-          data[i] = Math.tanh((standingWave + turbulentGas) * env * 3.0) * 0.98;
+
+          // Low-mid pressure punch
+          const thump = Math.sin(2 * Math.PI * fThump * t) * 0.70;
+          const pipeTone = Math.sin(2 * Math.PI * fRes * t) * 0.40;
+          // Organic pink/brown noise for gas expansion
+          const gasNoise = (Math.random() * 2 - 1) * 0.65;
+
+          const raw = (thump + pipeTone + gasNoise) * env;
+          // Clean, smooth tube saturation (no harsh digital clipping)
+          data[i] = Math.tanh(raw * 2.2) * 0.92;
         }
         popBuffers.push({ buffer: pBuf, isBang: isB, duration });
       }
@@ -3189,12 +3198,12 @@ function initAudio() {
         const tailLen = Math.floor(sampleRate * 0.045);
         const tailBuf = audioCtx.createBuffer(1, tailLen, sampleRate);
         const tData = tailBuf.getChannelData(0);
-        const tOmega = 2 * Math.PI * (480 + tIdx * 35) / sampleRate;
+        const fTail = 280 + tIdx * 30;
         for (let i = 0; i < tailLen; i++) {
           const t = i / sampleRate;
-          const env = Math.min(1.0, t / 0.0005) * Math.exp(-t / 0.0085);
-          const s = (Math.sin(tOmega * i) * 0.45 + (Math.random() * 2 - 1) * 0.55) * env;
-          tData[i] = Math.tanh(s * 2.8) * 0.88;
+          const env = Math.min(1.0, t / 0.0003) * Math.exp(-t / 0.009);
+          const sig = (Math.sin(2 * Math.PI * fTail * t) * 0.45 + (Math.random() * 2 - 1) * 0.55) * env;
+          tData[i] = Math.tanh(sig * 2.5) * 0.85;
         }
         tailBuffers.push(tailBuf);
       }
@@ -3516,21 +3525,21 @@ function playOverrunBurble() {
 
   try {
     const sampleRate = audioCtx.sampleRate;
-    const len = Math.floor(sampleRate * 0.075);
+    const len = Math.floor(sampleRate * 0.085);
     const buf = audioCtx.createBuffer(1, len, sampleRate);
     const d = buf.getChannelData(0);
     for (let i = 0; i < len; i++) {
-      d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (sampleRate * 0.022));
+      d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (sampleRate * 0.025));
     }
     const src = audioCtx.createBufferSource();
     src.buffer = buf;
     const filter = audioCtx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(360 + Math.random() * 220, now);
+    filter.frequency.setValueAtTime(450 + Math.random() * 280, now);
 
     const g = audioCtx.createGain();
-    g.gain.setValueAtTime(0.07 + Math.random() * 0.05, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
+    g.gain.setValueAtTime(0.18 + Math.random() * 0.12, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.075);
 
     src.connect(filter);
     filter.connect(g);
@@ -3766,10 +3775,18 @@ function playExhaustPopSound(intensity = 1.0, isAggressive = false, isBang = fal
   if (!Number.isFinite(now)) return;
 
   try {
-    const sampleRate = audioCtx.sampleRate;
-    const effIntensity = Math.max(0.5, Math.min(2.5, intensity));
+    const effIntensity = Math.max(0.8, Math.min(2.5, intensity));
 
-    // 1. Physical Acoustic Combustion Shockwave Impulse (punchy, loud exhaust crack)
+    // 3D Stereo Spatialization across quad tailpipes
+    let panner = null;
+    if (audioCtx.createStereoPanner) {
+      panner = audioCtx.createStereoPanner();
+      panner.pan.setValueAtTime((Math.random() - 0.5) * 0.9, now);
+      panner.connect(masterGain || audioCtx.destination);
+    }
+    const outputDest = panner || masterGain || audioCtx.destination;
+
+    // 1. Organic Combustion Shockwave Buffer Selection
     const matchingBuffers = popBuffers.filter(b => b.isBang === isBang);
     const chosen = matchingBuffers.length > 0
       ? matchingBuffers[Math.floor(Math.random() * matchingBuffers.length)]
@@ -3781,60 +3798,90 @@ function playExhaustPopSound(intensity = 1.0, isAggressive = false, isBang = fal
     popSource.buffer = chosen.buffer;
     const duration = chosen.duration;
 
-    // 2. Dual-Stage Acoustic Resonant Filtering
-    // Stage A: Hollow Metal Downpipe Body Resonance Filter
-    const tubeFilter = audioCtx.createBiquadFilter();
-    tubeFilter.type = 'bandpass';
-    const centerFreq = isBang ? (440 + Math.random() * 70) : (340 + Math.random() * 50);
-    tubeFilter.frequency.setValueAtTime(centerFreq, now);
-    tubeFilter.Q.setValueAtTime(isBang ? 3.0 : 2.5, now);
+    // Subtle pitch variance for gas velocity changes
+    const speedPitch = 0.94 + Math.random() * 0.12;
+    popSource.playbackRate.setValueAtTime(speedPitch, now);
 
-    // Stage B: Titanium Tailpipe Wall Snap / High-Velocity Gas Crack Filter
-    const crackFilter = audioCtx.createBiquadFilter();
-    crackFilter.type = 'peaking';
-    const crackFreq = isBang ? (1420 + Math.random() * 200) : (1050 + Math.random() * 150);
-    crackFilter.frequency.setValueAtTime(crackFreq, now);
-    crackFilter.Q.setValueAtTime(2.0, now);
-    crackFilter.gain.setValueAtTime(isBang ? 8.5 : 5.0, now);
+    // 2. Sub-Bass Deep Exhaust Thump
+    const subPopOsc = audioCtx.createOscillator();
+    subPopOsc.type = 'sine';
+    subPopOsc.frequency.setValueAtTime(isBang ? 85 : 65, now);
+    subPopOsc.frequency.exponentialRampToValueAtTime(28, now + (isBang ? 0.07 : 0.05));
+    const subPopGain = audioCtx.createGain();
+    const subVol = Math.min(1.4, (isBang ? 1.20 : 0.80) * effIntensity);
+    subPopGain.gain.setValueAtTime(subVol, now);
+    subPopGain.gain.exponentialRampToValueAtTime(0.0001, now + (isBang ? 0.075 : 0.055));
+    subPopOsc.connect(subPopGain);
+    subPopGain.connect(outputDest);
+    subPopOsc.start(now);
+    subPopOsc.stop(now + 0.08);
 
-    // Stage C: Increased Output Gain for louder, punchier presence
+    // 3. Organic Exhaust Pipe Lowpass Acoustic Filter
+    const exhaustFilter = audioCtx.createBiquadFilter();
+    exhaustFilter.type = 'lowpass';
+    const cutoff = isBang ? (2200 + Math.random() * 500) : (1600 + Math.random() * 400);
+    exhaustFilter.frequency.setValueAtTime(cutoff, now);
+    exhaustFilter.Q.setValueAtTime(1.5, now);
+
+    // Master Pop Volume (Powerful, full-bodied presence)
     const popGain = audioCtx.createGain();
-    const peakGain = Math.min(1.45, (isBang ? 1.25 : 0.95) * effIntensity);
+    const peakGain = Math.min(2.2, (isBang ? 1.85 : 1.45) * effIntensity);
     popGain.gain.setValueAtTime(peakGain, now);
-    popGain.gain.exponentialRampToValueAtTime(0.0001, now + duration + 0.032);
+    popGain.gain.exponentialRampToValueAtTime(0.0001, now + duration + 0.030);
 
-    popSource.connect(tubeFilter);
-    tubeFilter.connect(crackFilter);
-    crackFilter.connect(popGain);
-    popGain.connect(masterGain || audioCtx.destination);
+    popSource.connect(exhaustFilter);
+    exhaustFilter.connect(popGain);
+    popGain.connect(outputDest);
     popSource.start(now);
 
-    // 3. Staccato Micro-Crackle Secondary Detonation (Authentic overrun texture)
+    // 4. Soft Asphalt Ground Echo
+    if (Math.random() < 0.80) {
+      const echoDelay = 0.012 + Math.random() * 0.010;
+      const echoTime = now + echoDelay;
+      const echoSource = audioCtx.createBufferSource();
+      echoSource.buffer = chosen.buffer;
+      echoSource.playbackRate.setValueAtTime(speedPitch * 0.90, echoTime);
+
+      const echoFilter = audioCtx.createBiquadFilter();
+      echoFilter.type = 'lowpass';
+      echoFilter.frequency.setValueAtTime(1100 + Math.random() * 300, echoTime);
+
+      const echoGain = audioCtx.createGain();
+      echoGain.gain.setValueAtTime(peakGain * 0.40, echoTime);
+      echoGain.gain.exponentialRampToValueAtTime(0.0001, echoTime + duration);
+
+      echoSource.connect(echoFilter);
+      echoFilter.connect(echoGain);
+      echoGain.connect(outputDest);
+      echoSource.start(echoTime);
+    }
+
+    // 5. Natural Secondary Overrun Burble Crackle
     if (Math.random() < 0.85 && tailBuffers.length > 0) {
-      const tailDelay = 0.022 + Math.random() * 0.030;
+      const tailDelay = 0.018 + Math.random() * 0.030;
       const tailTime = now + tailDelay;
 
       const tailSource = audioCtx.createBufferSource();
       tailSource.buffer = tailBuffers[Math.floor(Math.random() * tailBuffers.length)];
+      tailSource.playbackRate.setValueAtTime(speedPitch, tailTime);
 
       const tailFilter = audioCtx.createBiquadFilter();
-      tailFilter.type = 'bandpass';
-      tailFilter.frequency.setValueAtTime(680 + Math.random() * 300, tailTime);
-      tailFilter.Q.setValueAtTime(2.5, tailTime);
+      tailFilter.type = 'lowpass';
+      tailFilter.frequency.setValueAtTime(1300 + Math.random() * 350, tailTime);
 
       const tailGain = audioCtx.createGain();
-      tailGain.gain.setValueAtTime(peakGain * (0.45 + Math.random() * 0.22), tailTime);
-      tailGain.gain.exponentialRampToValueAtTime(0.0001, tailTime + 0.048);
+      tailGain.gain.setValueAtTime(peakGain * (0.65 + Math.random() * 0.25), tailTime);
+      tailGain.gain.exponentialRampToValueAtTime(0.0001, tailTime + 0.050);
 
       tailSource.connect(tailFilter);
       tailFilter.connect(tailGain);
-      tailGain.connect(masterGain || audioCtx.destination);
+      tailGain.connect(outputDest);
       tailSource.start(tailTime);
     }
 
-    // 4. Subtle, crisp wastegate pressure chuff on heavy detonations
+    // 6. Subtle wastegate puff on hard pops
     if (isBang && Math.random() < 0.35) {
-      playBlowOffSound(0.30);
+      playBlowOffSound(0.32);
     }
   } catch (err) {
     console.warn('Exhaust pop audio error:', err);
@@ -4038,15 +4085,15 @@ function updateOverrunPops(dt) {
 
   // Detect genuine accelerator release event (transition from ON throttle -> OFF throttle)
   if (prevAcceleratorState && !acceleratorPressed) {
-    // Only fire pops & bangs if driver was actively pressing the accelerator AND RPM >= 4800 at the moment of release
-    if (throttleHeldDuration >= 0.10 && carState.rpm >= 4800) {
-      // Extended duration: 9-12 pops for redline overrun, 6-8 pops for > 4800 RPM
-      overrunBarrageCount = (carState.rpm >= 6000 ? 9 + Math.floor(Math.random() * 4) : 6 + Math.floor(Math.random() * 3));
-      overrunIntensity = 1.35;
+    // Fire pops & bangs whenever driver releases accelerator with RPM >= 3600
+    if (throttleHeldDuration >= 0.08 && carState.rpm >= 3600) {
+      // Extended loud barrage: 10-15 pops for high RPM, 7-10 pops for > 3600 RPM
+      overrunBarrageCount = (carState.rpm >= 5500 ? 10 + Math.floor(Math.random() * 6) : 7 + Math.floor(Math.random() * 4));
+      overrunIntensity = 1.85;
 
       // Erupt the initial sharp, loud crack on throttle lift-off
       triggerExhaustFirePop(overrunIntensity, true, true);
-      overrunNextPopTimer = 0.10 + Math.random() * 0.045;
+      overrunNextPopTimer = 0.085 + Math.random() * 0.040;
     }
     throttleHeldDuration = 0;
   }
@@ -4061,7 +4108,7 @@ function updateOverrunPops(dt) {
 
   // Active overrun cadence with extended duration and natural volume decay
   if (overrunBarrageCount > 0) {
-    if (carState.rpm < 3200) {
+    if (carState.rpm < 2800) {
       overrunBarrageCount = 0;
       return;
     }
@@ -4071,9 +4118,9 @@ function updateOverrunPops(dt) {
       overrunBarrageCount--;
       // Mix sharp gunshot cracks and guttural pipe thocks
       const isBang = (overrunBarrageCount % 2 === 0) || (overrunBarrageCount === 0);
-      const popVol = Math.max(0.85, 1.25 * (overrunBarrageCount / 8));
+      const popVol = Math.max(1.15, 1.85 * (overrunBarrageCount / 8));
       triggerExhaustFirePop(popVol, true, isBang);
-      overrunNextPopTimer = 0.095 + Math.random() * 0.045;
+      overrunNextPopTimer = 0.08 + Math.random() * 0.040;
     }
   }
 }

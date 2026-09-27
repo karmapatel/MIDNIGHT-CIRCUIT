@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 650" width="100%" height="100%">
+  <defs>
+    <!-- Studio Background Gradient -->
+    <radialGradient id="studioBg" cx="50%" cy="50%" r="75%">
+      <stop offset="0%" stop-color="#e2e8f0"/>
+      <stop offset="60%" stop-color="#cbd5e1"/>
+      <stop offset="100%" stop-color="#94a3b8"/>
+    </radialGradient>
+
+    <!-- Metallic Outer Shield Bevels -->
+    <linearGradient id="metalTopLeft" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#94a3b8"/>
+      <stop offset="30%" stop-color="#475569"/>
+      <stop offset="70%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+
+    <linearGradient id="metalBottomRight" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="40%" stop-color="#334155"/>
+      <stop offset="70%" stop-color="#64748b"/>
+      <stop offset="100%" stop-color="#cbd5e1"/>
+    </linearGradient>
+
+    <!-- Carbon Fiber Background -->
+    <linearGradient id="carbonBase" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#111827"/>
+      <stop offset="50%" stop-color="#030712"/>
+      <stop offset="100%" stop-color="#0b0f19"/>
+    </linearGradient>
+
+    <pattern id="carbonMesh" width="8" height="8" patternUnits="userSpaceOnUse">
+      <rect width="4" height="4" fill="#1f2937" opacity="0.6"/>
+      <rect x="4" y="4" width="4" height="4" fill="#111827" opacity="0.8"/>
+    </pattern>
+
+    <!-- Neon Glow Trim -->
+    <linearGradient id="neonTrim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="40%" stop-color="#818cf8"/>
+      <stop offset="70%" stop-color="#c084fc"/>
+      <stop offset="100%" stop-color="#e879f9"/>
+    </linearGradient>
+
+    <!-- Drop Shadow for 3D Emblem Floor Projection -->
+    <filter id="emblemShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="25" stdDeviation="20" flood-color="#020617" flood-opacity="0.45"/>
+    </filter>
+
+    <filter id="cyanGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Clean Backdrop -->
+  <rect width="1000" height="650" fill="url(#studioBg)" />
+
+  <g filter="url(#emblemShadow)">
+    <!-- Heavy Metallic Outer Hexagonal Shield Frame -->
+    <polygon points="500,30 740,110 740,430 500,600 260,430 260,110" fill="url(#metalTopLeft)"/>
+    <polygon points="500,38 732,115 732,425 500,590 268,425 268,115" fill="url(#metalBottomRight)"/>
+
+    <!-- Inner Metallic Inset Frame -->
+    <polygon points="500,50 715,122 715,418 500,572 285,418 285,122" fill="#090d16" stroke="#1e293b" stroke-width="4"/>
+
+    <!-- Purple/Blue Neon Inner Trim Line -->
+    <polygon points="500,56 708,126 708,414 500,564 292,414 292,126" fill="none" stroke="url(#neonTrim)" stroke-width="3" filter="url(#cyanGlow)"/>
+
+    <!-- Carbon Fiber Shield Center Panel -->
+    <polygon points="500,62 702,130 702,410 500,556 298,410 298,130" fill="url(#carbonBase)"/>
+    <polygon points="500,62 702,130 702,410 500,556 298,410 298,130" fill="url(#carbonMesh)"/>
+
+    <!-- TOP TEXT: MIDNIGHT CIRCUIT (Etched Circuit Metallic Typography) -->
+    <g text-anchor="middle" font-family="'Impact', 'Arial Black', sans-serif">
+      <!-- Shadow offset -->
+      <text x="502" y="142" font-size="62" font-weight="900" letter-spacing="8" fill="#000000" opacity="0.9">MIDNIGHT</text>
+      <text x="500" y="140" font-size="62" font-weight="900" letter-spacing="8" fill="#cbd5e1" stroke="#1e293b" stroke-width="2">MIDNIGHT</text>
+
+      <text x="502" y="212" font-size="68" font-weight="900" letter-spacing="10" fill="#000000" opacity="0.9">CIRCUIT</text>
+      <text x="500" y="210" font-size="68" font-weight="900" letter-spacing="10" fill="#a855f7" stroke="#38bdf8" stroke-width="2" filter="url(#cyanGlow)">CIRCUIT</text>
+    </g>
+
+    <!-- CIRCUIT BOARD LINE ACCENTS -->
+    <path d="M 330 110 L 390 110 L 410 130" fill="none" stroke="#38bdf8" stroke-width="2" opacity="0.7"/>
+    <circle cx="410" cy="130" r="3" fill="#38bdf8"/>
+    <path d="M 670 110 L 610 110 L 590 130" fill="none" stroke="#38bdf8" stroke-width="2" opacity="0.7"/>
+    <circle cx="590" cy="130" r="3" fill="#38bdf8"/>
+
+    <!-- DRIFT ROAD CURVE WITH BLUE & PURPLE GLOW NEON TRAILS -->
+    <path d="M 230 420 Q 380 370 760 310" fill="none" stroke="#38bdf8" stroke-width="14" opacity="0.85" filter="url(#cyanGlow)"/>
+    <path d="M 230 420 Q 380 370 760 310" fill="none" stroke="#e879f9" stroke-width="5"/>
+
+    <!-- GT-R SPORTS CAR (FRONT THREE-QUARTER DRIFT PERSPECTIVE) -->
+    <g transform="translate(500, 375)">
+      <!-- Ground Shadow under car -->
+      <ellipse cx="-10" cy="45" rx="190" ry="25" fill="#020617" opacity="0.9"/>
+
+      <!-- Car Body Roof & Greenhouse Window -->
+      <path d="M -75 -40 C -50 -85 30 -85 75 -35 Z" fill="#030712" stroke="#38bdf8" stroke-width="3"/>
+
+      <!-- Carbon Fiber Hood & Chassis Outline -->
+      <path d="M -165 25 C -145 -15 -95 -40 -20 -45 C 35 -47 115 -35 155 10 C 170 24 175 40 158 48 C 130 55 -130 55 -158 48 Z" fill="#0f172a" stroke="url(#neonTrim)" stroke-width="3.5"/>
+      <path d="M -165 25 C -145 -15 -95 -40 -20 -45 C 35 -47 115 -35 155 10 C 170 24 175 40 158 48 C 130 55 -130 55 -158 48 Z" fill="url(#carbonMesh)"/>
+
+      <!-- Glowing Cyan Dual Projection Headlights -->
+      <polygon points="-150,15 -118,5 -125,25" fill="#00f0ff" filter="url(#cyanGlow)"/>
+      <polygon points="122,15 150,15 138,25" fill="#00f0ff" filter="url(#cyanGlow)"/>
+
+      <!-- Front Bumper Grille & Intercooler Mesh -->
+      <polygon points="-115,22 115,22 85,46 -85,46" fill="#020408" stroke="#334155" stroke-width="2"/>
+      
+      <!-- Wheels / Multi-Spoke Rims -->
+      <ellipse cx="-115" cy="38" rx="24" ry="30" fill="#020617" stroke="#38bdf8" stroke-width="3.5"/>
+      <ellipse cx="110" cy="38" rx="24" ry="30" fill="#020617" stroke="#c084fc" stroke-width="3.5"/>
+    </g>
+
+    <!-- LOWER EMBLEM BANNER: DARKLINES -->
+    <polygon points="320,470 680,470 650,530 350,530" fill="url(#metalTopLeft)" stroke="url(#neonTrim)" stroke-width="2.5"/>
+    <text x="500" y="514" text-anchor="middle" font-family="'Impact', 'Arial Black', sans-serif" font-size="38" font-weight="900" letter-spacing="12" fill="#f8fafc" stroke="#090d16" stroke-width="1.5">
+      DARKLINES
+    </text>
+  </g>
+</svg>

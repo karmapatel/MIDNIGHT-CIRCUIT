@@ -34,6 +34,17 @@ const pwaInstallTextEl = document.getElementById('pwa-install-text');
 const iosModalEl = document.getElementById('ios-install-modal');
 const closeIosModalBtnEl = document.getElementById('close-ios-modal-btn');
 const offlineToastEl = document.getElementById('offline-toast');
+const garageExitPromptEl = document.getElementById('garage-exit-prompt');
+const transitionOverlayEl = document.getElementById('scene-transition-overlay');
+const garageBtnEl = document.getElementById('garage-btn');
+
+// --- Game & Garage Environment State ---
+let inGarage = true;          // Player starts inside the 3D Underground Garage!
+let canExitGarage = false;    // True when GT-R R35 reaches the garage exit zone
+let isSceneTransitioning = false;
+let garageGroup = null;
+let garageDoorMesh = null;
+const ceilingLights = [];     // Array tracking cool blue flickering industrial light fixtures
 
 // --- Web Audio Synth Variables ---
 let audioCtx = null;
@@ -613,7 +624,18 @@ function initScene() {
   createRoadSprayParticles();
   createTireSmokeParticles();
   buildCar();
+  buildGarage();
   buildRoadChunks();
+
+  // Initially hide highway road chunks while player is inside the garage
+  roadChunks.forEach((chunk) => {
+    chunk.group.visible = false;
+  });
+
+  // Player starts seated inside the GT-R R35 in Slot 1 inside the garage
+  carState.position.set(-7.0, 0, 12.0);
+  carState.heading = 0;
+  carState.speed = 0;
 
   setupInputListeners();
   updateEngineHUD();
@@ -1957,9 +1979,532 @@ function buildRoadChunks() {
 }
 
 // -------------------------------------------------------------
+// 3D Underground Atmospheric Garage Construction & Transition
+// -------------------------------------------------------------
+function buildGarage() {
+  garageGroup = new THREE.Group();
+  scene.add(garageGroup);
+
+  // PBR Industrial Materials
+  const floorMat = new THREE.MeshStandardMaterial({
+    color: 0x181c24,
+    roughness: 0.38,
+    metalness: 0.25,
+  });
+
+  const wallMat = new THREE.MeshStandardMaterial({
+    color: 0x11151e,
+    roughness: 0.75,
+    metalness: 0.45,
+  });
+
+  const ceilingMat = new THREE.MeshStandardMaterial({
+    color: 0x0c0e14,
+    roughness: 0.88,
+    metalness: 0.20,
+  });
+
+  const yellowStripeMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
+  const greenChevronMat = new THREE.MeshBasicMaterial({ color: 0x10b981 });
+  const cyanNeonMat = new THREE.MeshBasicMaterial({ color: 0x06b6d4 });
+  const redNeonMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+
+  const metalColumnMat = new THREE.MeshStandardMaterial({
+    color: 0x272e3b,
+    metalness: 0.85,
+    roughness: 0.30,
+  });
+
+  // 1. Garage Floor (36m wide, 52m deep)
+  const floorGeo = new THREE.PlaneGeometry(36, 52);
+  const floorMesh = new THREE.Mesh(floorGeo, floorMat);
+  floorMesh.rotation.x = -Math.PI / 2;
+  floorMesh.receiveShadow = true;
+  garageGroup.add(floorMesh);
+
+  // 2. Ceiling with Structural Steel I-Beams (Y = 6.0m)
+  const ceilingGeo = new THREE.PlaneGeometry(36, 52);
+  const ceilingMesh = new THREE.Mesh(ceilingGeo, ceilingMat);
+  ceilingMesh.rotation.x = Math.PI / 2;
+  ceilingMesh.position.y = 6.0;
+  garageGroup.add(ceilingMesh);
+
+  for (let z = -20; z <= 20; z += 10) {
+    const iBeam = new THREE.Mesh(new THREE.BoxGeometry(36, 0.35, 0.4), metalColumnMat);
+    iBeam.position.set(0, 5.8, z);
+    garageGroup.add(iBeam);
+  }
+
+  // 3. Perimeter Walls
+  // Back Wall (Z = 24)
+  const backWall = new THREE.Mesh(new THREE.BoxGeometry(36, 6, 0.4), wallMat);
+  backWall.position.set(0, 3, 24);
+  garageGroup.add(backWall);
+
+  // Left Wall (X = -18)
+  const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 6, 52), wallMat);
+  leftWall.position.set(-18, 3, 0);
+  garageGroup.add(leftWall);
+
+  // Right Wall (X = 18)
+  const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 6, 52), wallMat);
+  rightWall.position.set(18, 3, 0);
+  garageGroup.add(rightWall);
+
+  // Front Exit Wall (Z = -24) with Central Gate Frame (X: [-5, 5])
+  const frontWallL = new THREE.Mesh(new THREE.BoxGeometry(13, 6, 0.4), wallMat);
+  frontWallL.position.set(-11.5, 3, -24);
+  garageGroup.add(frontWallL);
+
+  const frontWallR = new THREE.Mesh(new THREE.BoxGeometry(13, 6, 0.4), wallMat);
+  frontWallR.position.set(11.5, 3, -24);
+  garageGroup.add(frontWallR);
+
+  const frontWallTop = new THREE.Mesh(new THREE.BoxGeometry(10, 1.8, 0.4), wallMat);
+  frontWallTop.position.set(0, 5.1, -24);
+  garageGroup.add(frontWallTop);
+
+  // Detailed Industrial Roll-Up Garage Shutter Door
+  garageDoorMesh = new THREE.Group();
+  garageDoorMesh.position.set(0, 2.2, -23.9);
+
+  const slatMatDark = new THREE.MeshStandardMaterial({
+    color: 0x272e3b,
+    metalness: 0.88,
+    roughness: 0.32,
+  });
+  const slatMatLight = new THREE.MeshStandardMaterial({
+    color: 0x3b4454,
+    metalness: 0.82,
+    roughness: 0.28,
+  });
+  const bottomBarMat = new THREE.MeshStandardMaterial({
+    color: 0x1e293b,
+    metalness: 0.90,
+    roughness: 0.20,
+  });
+  const hazardStripeMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
+  const blackStripeMat = new THREE.MeshBasicMaterial({ color: 0x090d16 });
+  const doorChromeMat = new THREE.MeshStandardMaterial({
+    color: 0xf8fafc,
+    metalness: 0.98,
+    roughness: 0.08,
+  });
+
+  // 14 Horizontal Ribbed Slats (Roll-up Panels)
+  const slatCount = 14;
+  const slatHeight = 0.30;
+  const totalDoorHeight = slatCount * slatHeight;
+
+  for (let i = 0; i < slatCount; i++) {
+    const yLocal = (i - slatCount / 2 + 0.5) * slatHeight;
+    const isEven = i % 2 === 0;
+    const slatGeo = new THREE.BoxGeometry(9.7, slatHeight * 0.92, 0.14);
+    const slatMesh = new THREE.Mesh(slatGeo, isEven ? slatMatDark : slatMatLight);
+    slatMesh.position.set(0, yLocal, 0);
+    garageDoorMesh.add(slatMesh);
+
+    // Recessed Hinge Groove Line between slats
+    const grooveGeo = new THREE.BoxGeometry(9.72, 0.025, 0.16);
+    const grooveMesh = new THREE.Mesh(grooveGeo, blackStripeMat);
+    grooveMesh.position.set(0, yLocal + slatHeight / 2, 0);
+    garageDoorMesh.add(grooveMesh);
+
+    // Chrome Rivet Fasteners on slat ends
+    [-4.7, 4.7].forEach((xRivet) => {
+      const rivet = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.18, 8), doorChromeMat);
+      rivet.rotation.x = Math.PI / 2;
+      rivet.position.set(xRivet, yLocal, 0);
+      garageDoorMesh.add(rivet);
+    });
+  }
+
+  // Heavy Bottom Bar with Caution Hazard Stripes
+  const bottomY = -totalDoorHeight / 2 + slatHeight / 2;
+  const bottomBar = new THREE.Mesh(new THREE.BoxGeometry(9.72, 0.38, 0.20), bottomBarMat);
+  bottomBar.position.set(0, bottomY, 0.02);
+  garageDoorMesh.add(bottomBar);
+
+  // Yellow & Black Diagonal Hazard Stripes on Bottom Bar
+  for (let hs = -4.5; hs <= 4.5; hs += 0.6) {
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.32, 0.22), (Math.abs(Math.round(hs * 10)) % 2 === 0) ? hazardStripeMat : blackStripeMat);
+    stripe.position.set(hs, bottomY, 0.025);
+    stripe.rotation.z = 0.35;
+    garageDoorMesh.add(stripe);
+  }
+
+  // Weather Seal Rubber Foot Lip
+  const sealLip = new THREE.Mesh(new THREE.BoxGeometry(9.74, 0.08, 0.24), blackStripeMat);
+  sealLip.position.set(0, bottomY - 0.20, 0.02);
+  garageDoorMesh.add(sealLip);
+
+  // Dual Heavy Steel Pull Handles
+  [-1.2, 1.2].forEach((xHandle) => {
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.12, 0.12), doorChromeMat);
+    handle.position.set(xHandle, bottomY + 0.1, 0.14);
+    garageDoorMesh.add(handle);
+  });
+
+  garageGroup.add(garageDoorMesh);
+
+  // Vertical Guide Tracks & Overhead Roller Housing
+  const trackMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.9, roughness: 0.2 });
+  [-4.92, 4.92].forEach((xTrack) => {
+    const track = new THREE.Mesh(new THREE.BoxGeometry(0.18, 4.8, 0.32), trackMat);
+    track.position.set(xTrack, 2.4, -23.85);
+    garageGroup.add(track);
+  });
+
+  // Overhead Roller Drum Shell
+  const drumGeo = new THREE.CylinderGeometry(0.42, 0.42, 9.8, 20);
+  drumGeo.rotateZ(Math.PI / 2);
+  const drumMesh = new THREE.Mesh(drumGeo, trackMat);
+  drumMesh.position.set(0, 4.65, -23.8);
+  garageGroup.add(drumMesh);
+
+  // Exit Frame Warning Beacons & Neon Exit Sign
+  const exitSignGroup = new THREE.Group();
+  exitSignGroup.position.set(0, 4.8, -23.7);
+  const signBack = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.7, 0.1), new THREE.MeshStandardMaterial({ color: 0x090d16 }));
+  exitSignGroup.add(signBack);
+  const signNeon = new THREE.Mesh(new THREE.BoxGeometry(3.9, 0.45, 0.12), cyanNeonMat);
+  exitSignGroup.add(signNeon);
+  garageGroup.add(exitSignGroup);
+
+  // Exit Status Beacons
+  [-4.8, 4.8].forEach((xPos, idx) => {
+    const bulbMat = idx === 0 ? redNeonMat : new THREE.MeshBasicMaterial({ color: 0x10b981 });
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), bulbMat);
+    bulb.position.set(xPos, 4.2, -23.7);
+    garageGroup.add(bulb);
+  });
+
+  // Green Floor Chevron Arrows leading to exit gate
+  for (let z = -8; z >= -20; z -= 4) {
+    const chevronGroup = new THREE.Group();
+    chevronGroup.position.set(0, 0.02, z);
+    const armL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.01, 1.8), greenChevronMat);
+    armL.position.set(-0.6, 0, 0);
+    armL.rotation.y = Math.PI / 4;
+    const armR = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.01, 1.8), greenChevronMat);
+    armR.position.set(0.6, 0, 0);
+    armR.rotation.y = -Math.PI / 4;
+    chevronGroup.add(armL);
+    chevronGroup.add(armR);
+    garageGroup.add(chevronGroup);
+  }
+
+  // Marked Exit Zone Floor Hazard Lines
+  const zoneBoxL = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.02, 7.5), yellowStripeMat);
+  zoneBoxL.position.set(-4.5, 0.02, -19.75);
+  garageGroup.add(zoneBoxL);
+  const zoneBoxR = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.02, 7.5), yellowStripeMat);
+  zoneBoxR.position.set(4.5, 0.02, -19.75);
+  garageGroup.add(zoneBoxR);
+
+  // 4. PARKING SLOTS (Exactly 3 Parking Slots along Z = 12.0)
+  // Slot 1: X = -7.0, Z = 12.0 (Contains Nissan GT-R R35)
+  // Slot 2: X = 0.0, Z = 12.0 (Empty)
+  // Slot 3: X = 7.0, Z = 12.0 (Empty)
+  const slotWidth = 4.8;
+  const slotLength = 8.5;
+  const slotCenterZ = 12.0;
+  const slotXPositions = [-7.0, 0.0, 7.0];
+
+  slotXPositions.forEach((xPos, idx) => {
+    const slotNumber = idx + 1;
+
+    // Stall boundary painted lines (Yellow)
+    const lineL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.02, slotLength), yellowStripeMat);
+    lineL.position.set(xPos - slotWidth / 2, 0.02, slotCenterZ);
+    garageGroup.add(lineL);
+
+    const lineR = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.02, slotLength), yellowStripeMat);
+    lineR.position.set(xPos + slotWidth / 2, 0.02, slotCenterZ);
+    garageGroup.add(lineR);
+
+    const lineBack = new THREE.Mesh(new THREE.BoxGeometry(slotWidth, 0.02, 0.12), yellowStripeMat);
+    lineBack.position.set(xPos, 0.02, slotCenterZ + slotLength / 2);
+    garageGroup.add(lineBack);
+
+    // Wheel Stop Bumper at back of slot
+    const wheelStop = new THREE.Mesh(
+      new THREE.BoxGeometry(2.4, 0.18, 0.3),
+      new THREE.MeshStandardMaterial({ color: 0x334155 })
+    );
+    wheelStop.position.set(xPos, 0.09, slotCenterZ + 3.2);
+    garageGroup.add(wheelStop);
+
+    // Slot Number Floor Plaque
+    const plaqueMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.3 });
+    const plaque = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.02, 0.8), plaqueMat);
+    plaque.position.set(xPos, 0.025, slotCenterZ - 3.8);
+    garageGroup.add(plaque);
+
+    const numBadgeMat = slotNumber === 1
+      ? new THREE.MeshBasicMaterial({ color: 0xef4444 }) // Crimson for GT-R Slot 1
+      : new THREE.MeshBasicMaterial({ color: 0x06b6d4 }); // Cyan for Slots 2 & 3
+    const numBadge = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.025, 0.5), numBadgeMat);
+    numBadge.position.set(xPos, 0.03, slotCenterZ - 3.8);
+    garageGroup.add(numBadge);
+
+    // Wall Sign Above Slot
+    const wallSign = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.6, 0.08), plaqueMat);
+    wallSign.position.set(xPos, 3.8, 23.9);
+    garageGroup.add(wallSign);
+
+    const wallText = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, 0.3, 0.1),
+      slotNumber === 1 ? redNeonMat : cyanNeonMat
+    );
+    wallText.position.set(xPos, 3.8, 23.85);
+    garageGroup.add(wallText);
+
+    // Overhead Slot SpotLight
+    const slotSpot = new THREE.SpotLight(
+      slotNumber === 1 ? 0xffffff : 0x38bdf8,
+      slotNumber === 1 ? 6.0 : 3.0,
+      18,
+      Math.PI / 4,
+      0.6,
+      1.0
+    );
+    slotSpot.position.set(xPos, 5.5, slotCenterZ);
+    slotSpot.target.position.set(xPos, 0, slotCenterZ);
+    garageGroup.add(slotSpot);
+    garageGroup.add(slotSpot.target);
+  });
+
+  // 5. Heavy Structural Pillars
+  const pillarGeo = new THREE.CylinderGeometry(0.8, 0.8, 6.0, 16);
+  const pillarPositions = [
+    { x: -12, z: 0 }, { x: 12, z: 0 },
+    { x: -12, z: 12 }, { x: 12, z: 12 },
+  ];
+
+  pillarPositions.forEach((pos) => {
+    const pillar = new THREE.Mesh(pillarGeo, metalColumnMat);
+    pillar.position.set(pos.x, 3.0, pos.z);
+    pillar.castShadow = true;
+    garageGroup.add(pillar);
+
+    // Yellow/Black Hazard Ring
+    const hazardRing = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.82, 0.82, 0.8, 16),
+      new THREE.MeshBasicMaterial({ color: 0xfacc15 })
+    );
+    hazardRing.position.set(pos.x, 1.2, pos.z);
+    garageGroup.add(hazardRing);
+  });
+
+  // 6. Underground Cool Blue Flickering Ceiling Fixtures
+  const garageAmbient = new THREE.AmbientLight(0x1e293b, 0.85);
+  garageGroup.add(garageAmbient);
+
+  ceilingLights.length = 0;
+  const blueTubeMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+
+  for (let z = -18; z <= 20; z += 9) {
+    [-8, 0, 8].forEach((xPos) => {
+      const fixtureGeo = new THREE.BoxGeometry(2.6, 0.12, 0.35);
+      const fixture = new THREE.Mesh(fixtureGeo, metalColumnMat);
+      fixture.position.set(xPos, 5.75, z);
+      garageGroup.add(fixture);
+
+      const tubeMat = blueTubeMat.clone();
+      const tube = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.08, 0.20), tubeMat);
+      tube.position.set(xPos, 5.67, z);
+      garageGroup.add(tube);
+
+      const coolBlueLight = new THREE.PointLight(0x0284c7, 3.2, 18.0);
+      coolBlueLight.position.set(xPos, 5.45, z);
+      garageGroup.add(coolBlueLight);
+
+      ceilingLights.push({
+        pointLight: coolBlueLight,
+        tubeMat: tubeMat,
+        baseIntensity: 2.8 + Math.random() * 0.8,
+        freq1: 8.0 + Math.random() * 12.0,
+        freq2: 18.0 + Math.random() * 25.0,
+        phase: Math.random() * Math.PI * 2,
+      });
+    });
+  }
+
+  // 7. Garage Details & Tuning Props
+  // Red Metallic Heavy Tool Chests
+  const cabinetMat = new THREE.MeshStandardMaterial({ color: 0xb91c1c, metalness: 0.8, roughness: 0.3 });
+  const cabinet1 = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.4, 0.8), cabinetMat);
+  cabinet1.position.set(-17.0, 0.7, -6.0);
+  garageGroup.add(cabinet1);
+
+  const cabinet2 = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.4, 0.8), cabinetMat);
+  cabinet2.position.set(17.0, 0.7, -6.0);
+  garageGroup.add(cabinet2);
+
+  // Stacked Tire Rack along right wall
+  const tireRackGroup = new THREE.Group();
+  tireRackGroup.position.set(16.8, 0, 4.0);
+  for (let ty = 0.35; ty <= 1.8; ty += 0.45) {
+    const rackTire = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.38, 0.38, 0.28, 16),
+      new THREE.MeshStandardMaterial({ color: 0x111318, roughness: 0.9 })
+    );
+    rackTire.rotation.z = Math.PI / 2;
+    rackTire.position.set(0, ty, 0);
+    tireRackGroup.add(rackTire);
+  }
+  garageGroup.add(tireRackGroup);
+
+  // Wall Neon Sign ("MIDNIGHT CIRCUIT TUNING")
+  const wallNeonGroup = new THREE.Group();
+  wallNeonGroup.position.set(-17.7, 4.2, 4.0);
+  wallNeonGroup.rotation.y = Math.PI / 2;
+  const wallNeonBack = new THREE.Mesh(new THREE.BoxGeometry(5.0, 0.9, 0.08), new THREE.MeshStandardMaterial({ color: 0x090d16 }));
+  wallNeonGroup.add(wallNeonBack);
+  const wallNeonText = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.5, 0.1), redNeonMat);
+  wallNeonGroup.add(wallNeonText);
+  garageGroup.add(wallNeonGroup);
+}
+
+function updateGarageLighting(dt) {
+  if (!inGarage || ceilingLights.length === 0) return;
+  const time = clock.getElapsedTime();
+
+  for (let i = 0; i < ceilingLights.length; i++) {
+    const light = ceilingLights[i];
+    const wave1 = Math.sin(time * light.freq1 + light.phase) * 0.12;
+    const wave2 = Math.cos(time * light.freq2) * 0.08;
+    const randomSpark = (Math.random() < 0.025) ? -(0.25 + Math.random() * 0.35) : 0.02;
+
+    const currentIntensity = Math.max(0.6, light.baseIntensity + wave1 + wave2 + randomSpark);
+    light.pointLight.intensity = currentIntensity;
+
+    const lightness = Math.max(0.35, Math.min(0.85, 0.60 + (currentIntensity - light.baseIntensity) * 0.20));
+    light.tubeMat.color.setHSL(0.55, 0.92, lightness);
+  }
+}
+
+function transitionFromGarageToHighway() {
+  if (isSceneTransitioning) return;
+  isSceneTransitioning = true;
+
+  if (transitionOverlayEl) {
+    transitionOverlayEl.classList.remove('opacity-0');
+    transitionOverlayEl.classList.add('opacity-100');
+  }
+
+  // Smooth mechanical roll-up shutter animation with subtle shudder vibration
+  let doorAnimTime = 0;
+  const startY = 2.2;
+  const doorInterval = setInterval(() => {
+    doorAnimTime += 0.025;
+    const progress = Math.min(1.0, doorAnimTime / 0.65);
+    const smoothP = progress * progress * (3 - 2 * progress);
+    const shudder = (progress < 0.98) ? (Math.random() - 0.5) * 0.03 : 0;
+
+    if (garageDoorMesh) {
+      garageDoorMesh.position.y = startY + smoothP * 4.8 + shudder;
+      garageDoorMesh.position.x = shudder * 0.5;
+    }
+
+    if (doorAnimTime >= 0.70) {
+      clearInterval(doorInterval);
+    }
+  }, 25);
+
+  setTimeout(() => {
+    inGarage = false;
+    canExitGarage = false;
+
+    if (garageGroup) garageGroup.visible = false;
+    roadChunks.forEach((chunk) => {
+      chunk.group.visible = true;
+    });
+
+    // Show Return to Garage button on HUD while on highway
+    if (garageBtnEl) {
+      garageBtnEl.classList.remove('hidden');
+      garageBtnEl.classList.add('flex');
+    }
+
+    // Reposition GT-R R35 smoothly onto highway start line
+    carState.position.set(0, 0, 0);
+    carState.heading = 0;
+    carState.speed = 0;
+    cameraFollow.smoothHeading = 0;
+
+    if (garageExitPromptEl) {
+      garageExitPromptEl.classList.add('hidden', 'opacity-0', 'scale-95');
+      garageExitPromptEl.classList.remove('opacity-100', 'scale-100');
+    }
+
+    if (transitionOverlayEl) {
+      transitionOverlayEl.classList.remove('opacity-100');
+      transitionOverlayEl.classList.add('opacity-0');
+    }
+
+    setTimeout(() => {
+      isSceneTransitioning = false;
+    }, 700);
+  }, 650);
+}
+
+function returnToGarageFromHighway() {
+  if (isSceneTransitioning || inGarage) return;
+  isSceneTransitioning = true;
+
+  if (transitionOverlayEl) {
+    transitionOverlayEl.classList.remove('opacity-0');
+    transitionOverlayEl.classList.add('opacity-100');
+  }
+
+  setTimeout(() => {
+    inGarage = true;
+    canExitGarage = false;
+
+    roadChunks.forEach((chunk) => {
+      chunk.group.visible = false;
+    });
+    if (garageGroup) garageGroup.visible = true;
+
+    // Hide Return to Garage button while inside garage
+    if (garageBtnEl) {
+      garageBtnEl.classList.add('hidden');
+      garageBtnEl.classList.remove('flex');
+    }
+
+    // Reposition GT-R R35 back into Slot 1
+    carState.position.set(-7.0, 0, 12.0);
+    carState.heading = 0;
+    carState.speed = 0;
+    cameraFollow.smoothHeading = 0;
+
+    if (garageDoorMesh) {
+      garageDoorMesh.position.set(0, 2.2, -23.9);
+    }
+
+    if (garageExitPromptEl) {
+      garageExitPromptEl.classList.add('hidden', 'opacity-0', 'scale-95');
+      garageExitPromptEl.classList.remove('opacity-100', 'scale-100');
+    }
+
+    if (transitionOverlayEl) {
+      transitionOverlayEl.classList.remove('opacity-100');
+      transitionOverlayEl.classList.add('opacity-0');
+    }
+
+    setTimeout(() => {
+      isSceneTransitioning = false;
+    }, 700);
+  }, 650);
+}
+
+// -------------------------------------------------------------
 // Seamless Dynamic Road Chunk Streaming
 // -------------------------------------------------------------
 function updateRoadChunks() {
+  if (inGarage) return;
   const carZ = carState.position.z;
   const numChunks = roadChunks.length;
   if (numChunks === 0) return;
@@ -3243,6 +3788,13 @@ function setupInputListeners() {
     });
   }
 
+  if (garageBtnEl) {
+    garageBtnEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      returnToGarageFromHighway();
+    });
+  }
+
   // --- PWA Installation & Offline Connectivity Logic ---
   let deferredInstallPrompt = null;
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
@@ -3358,6 +3910,19 @@ function setupInputListeners() {
       case 'KeyM':
         toggleAudio();
         e.preventDefault();
+        break;
+      case 'KeyG':
+        if (!inGarage && !isSceneTransitioning) {
+          returnToGarageFromHighway();
+          e.preventDefault();
+        }
+        break;
+      case 'Enter':
+      case 'NumpadEnter':
+        if (inGarage && canExitGarage && !isSceneTransitioning) {
+          transitionFromGarageToHighway();
+          e.preventDefault();
+        }
         break;
     }
     if (e.key === '\\' || e.code === 'Backslash') {
@@ -3792,14 +4357,85 @@ function updateCarPhysics(dt) {
   carState.position.x += forwardX * carState.speed * dt;
   carState.position.z += forwardZ * carState.speed * dt;
 
-  // Elastic guardrail safety boundary (keeps car securely on the asphalt)
-  const guardrailLimit = carState.roadLimitX;
-  if (Math.abs(carState.position.x) > guardrailLimit) {
-    const side = Math.sign(carState.position.x);
-    const penetration = Math.abs(carState.position.x) - guardrailLimit;
-    carState.position.x = side * (guardrailLimit - 0.02);
-    carState.heading *= Math.max(0.7, 1.0 - 5.0 * dt);
-    carState.speed *= Math.max(0.85, 1.0 - penetration * 0.15 * dt);
+  if (inGarage) {
+    // 3D Garage Boundary & Collision Physics
+    const minX = -15.2, maxX = 15.2;
+    const minZ = -22.2, maxZ = 22.2;
+
+    if (carState.position.x < minX) {
+      carState.position.x = minX;
+      carState.speed *= -0.25;
+    } else if (carState.position.x > maxX) {
+      carState.position.x = maxX;
+      carState.speed *= -0.25;
+    }
+
+    if (carState.position.z > maxZ) {
+      carState.position.z = maxZ;
+      carState.speed *= -0.25;
+    } else if (carState.position.z < minZ) {
+      const inGateWidth = Math.abs(carState.position.x) < 4.2;
+      if (!inGateWidth || !canExitGarage) {
+        carState.position.z = minZ;
+        carState.speed *= -0.25;
+      }
+    }
+
+    // Heavy Support Pillar Collisions
+    const pillars = [
+      { x: -12, z: 0 }, { x: 12, z: 0 },
+      { x: -12, z: 12 }, { x: 12, z: 12 },
+    ];
+    const carRadius = 1.3;
+    const pillarRadius = 0.88;
+    pillars.forEach((col) => {
+      const dx = carState.position.x - col.x;
+      const dz = carState.position.z - col.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      const minDist = carRadius + pillarRadius;
+      if (dist < minDist && dist > 0) {
+        const overlap = minDist - dist;
+        carState.position.x += (dx / dist) * overlap;
+        carState.position.z += (dz / dist) * overlap;
+        carState.speed *= -0.3;
+      }
+    });
+
+    // Exit Area Trigger Check
+    const inExitZone = Math.abs(carState.position.x) < 4.8 && carState.position.z < -16.0 && carState.position.z > -23.5;
+    if (inExitZone) {
+      canExitGarage = true;
+      if (garageExitPromptEl) {
+        garageExitPromptEl.classList.remove('hidden');
+        setTimeout(() => {
+          if (canExitGarage && garageExitPromptEl) {
+            garageExitPromptEl.classList.remove('opacity-0', 'scale-95');
+            garageExitPromptEl.classList.add('opacity-100', 'scale-100');
+          }
+        }, 10);
+      }
+    } else {
+      canExitGarage = false;
+      if (garageExitPromptEl) {
+        garageExitPromptEl.classList.remove('opacity-100', 'scale-100');
+        garageExitPromptEl.classList.add('opacity-0', 'scale-95');
+        setTimeout(() => {
+          if (!canExitGarage && garageExitPromptEl) {
+            garageExitPromptEl.classList.add('hidden');
+          }
+        }, 300);
+      }
+    }
+  } else {
+    // Elastic guardrail safety boundary on Highway
+    const guardrailLimit = carState.roadLimitX;
+    if (Math.abs(carState.position.x) > guardrailLimit) {
+      const side = Math.sign(carState.position.x);
+      const penetration = Math.abs(carState.position.x) - guardrailLimit;
+      carState.position.x = side * (guardrailLimit - 0.02);
+      carState.heading *= Math.max(0.7, 1.0 - 5.0 * dt);
+      carState.speed *= Math.max(0.85, 1.0 - penetration * 0.15 * dt);
+    }
   }
 
   // 7. Wheel Rolling & Pivot Visuals
@@ -4121,6 +4757,7 @@ function animate() {
   updateOverrunPops(dt);
   updateCamera(dt);
   updateRoadChunks();
+  updateGarageLighting(dt);
   updateRoadSpray(dt);
   updateTireSmoke(dt);
   updateExhaustFlames(dt);

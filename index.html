@@ -55,6 +55,12 @@
             <span id="lights-dot" class="inline-block w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]"></span>
             <span id="lights-text">LIGHTS ON (L)</span>
           </button>
+          <button id="garage-btn" class="pointer-events-auto hidden items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900/80 hover:bg-slate-800 text-amber-300 font-mono text-xs font-semibold border border-amber-500/40 hover:border-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.25)] transition-all active:scale-95 cursor-pointer select-none" title="Return to Garage (G)">
+            <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+            </svg>
+            <span>GARAGE (G)</span>
+          </button>
         </div>
       </div>
 
@@ -101,6 +107,10 @@
           <div class="flex items-center gap-2">
             <span class="bg-white/10 text-white font-mono px-1.5 py-0.5 rounded text-[11px]">M</span>
             <span>Toggle Audio</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="bg-amber-500/20 text-amber-300 font-mono px-1.5 py-0.5 rounded text-[11px] border border-amber-500/40">G</span>
+            <span class="text-amber-200">Return to Garage</span>
           </div>
         </div>
 
@@ -333,6 +343,22 @@
       <span class="h-2 w-2 rounded-full bg-slate-950 animate-pulse"></span>
       <span>Offline Mode — Simulator ready locally</span>
     </div>
+
+    <!-- Garage Exit Prompt Banner -->
+    <div id="garage-exit-prompt" class="fixed inset-x-0 bottom-28 sm:bottom-32 z-30 flex justify-center items-center pointer-events-none transition-all duration-300 transform scale-95 opacity-0 hidden">
+      <div class="flex items-center gap-3 px-5 py-3 rounded-2xl bg-slate-950/90 backdrop-blur-md border border-cyan-400/60 shadow-[0_0_30px_rgba(6,182,212,0.5)]">
+        <div class="px-2.5 py-1 rounded-md bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 font-mono font-black text-xs sm:text-sm shadow-md flex items-center gap-1">
+          <span>ENTER</span>
+        </div>
+        <span class="font-mono font-bold text-xs sm:text-sm text-cyan-200 tracking-wider">Press ENTER to Drive</span>
+        <svg class="w-4 h-4 sm:w-5 sm:h-5 text-cyan-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+        </svg>
+      </div>
+    </div>
+
+    <!-- Scene Transition Overlay -->
+    <div id="scene-transition-overlay" class="fixed inset-0 z-40 bg-black pointer-events-none transition-opacity duration-700 opacity-0"></div>
 
     <script type="module" src="/src/main.js"></script>
   </body>

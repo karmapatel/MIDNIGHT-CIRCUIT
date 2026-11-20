@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { registerSW } from 'virtual:pwa-register';
+import { buildOpenWorld } from './openWorld.js';
+import { createMinimap } from './minimap.js';
 
 // -------------------------------------------------------------
 // MIDNIGHT CIRCUIT - High-Fidelity 3D Driving Simulator
@@ -34,20 +36,24 @@ const pwaInstallTextEl = document.getElementById('pwa-install-text');
 const iosModalEl = document.getElementById('ios-install-modal');
 const closeIosModalBtnEl = document.getElementById('close-ios-modal-btn');
 const offlineToastEl = document.getElementById('offline-toast');
-const garageExitPromptEl = document.getElementById('garage-exit-prompt');
 const transitionOverlayEl = document.getElementById('scene-transition-overlay');
 const garageBtnEl = document.getElementById('garage-btn');
 const cameraIndicatorEl = document.getElementById('camera-indicator');
 const cameraTextEl = document.getElementById('camera-text');
+const zoneIndicatorEl = document.getElementById('zone-indicator');
+const minimapCanvasEl = document.getElementById('minimap-canvas');
 
-// --- Game & Garage Environment State ---
+// --- Game & Open-World Environment State ---
 let inGarage = true;          // Player starts inside the 3D Underground Garage!
-let canExitGarage = false;    // True when GT-R R35 reaches the garage exit zone
 let isSceneTransitioning = false;
 let cameraMode = 'normal';    // 'normal' or 'cockpit'
 let carCabinMesh = null;
 let garageGroup = null;
 let garageDoorMesh = null;
+let garageDoorOpen = 0;       // 0 = closed, 1 = fully rolled up into overhead drum
+let openWorld = null;         // Seamless open-world module handle
+let minimap = null;           // Circular radar mini-map HUD handle
+let lastZoneName = '';
 const ceilingLights = [];     // Array tracking cool blue flickering industrial light fixtures
 
 // --- Cockpit Digital Dashboard Telemetry Texture ---
@@ -351,18 +357,13 @@ const _rearLeftOffset = new THREE.Vector3(-0.95, 0.08, 1.35);
 const _rearRightOffset = new THREE.Vector3(0.95, 0.08, 1.35);
 const _frontLeftOffset = new THREE.Vector3(-0.95, 0.08, -1.35);
 const _frontRightOffset = new THREE.Vector3(0.95, 0.08, -1.35);
-const _sprayLeftOffset = new THREE.Vector3(-0.94, 0.2, 1.45);
-const _sprayRightOffset = new THREE.Vector3(0.94, 0.2, 1.45);
 
 // --- Three.js Globals ---
 let scene, camera, renderer, pmremGenerator;
+let moonLight = null;
+let starfieldPoints = null;
+let moonGroupObj = null;
 let clock = new THREE.Clock();
-
-// --- Highway & Chunk Dimensions ---
-const ROAD_WIDTH = 16;
-const CHUNK_LENGTH = 120;
-const TOTAL_CHUNKS = 10;
-const ROAD_SPAN = CHUNK_LENGTH * TOTAL_CHUNKS;
 
 // --- 6-Speed Automatic Transmission Specifications ---
 const GEAR_CONFIG = [
@@ -421,9 +422,9 @@ const carState = {
   reverseAccelRate: 5.5,
   rollingFriction: 0.7,
   aeroDragCoeff: 0.00040,
-  maxSteerAngle: 0.34, // Rebalanced for responsive yet controllable steering
-  steerReturnSpeed: 5.4, // Natural centering speed
-  steerInputSpeed: 3.6, // Quick responsive turn-in without sluggish delay
+  maxSteerAngle: 0.56, // Tight open-world street turning radius (~4.4m min radius at low speed)
+  steerReturnSpeed: 7.0, // Crisp self-centering return
+  steerInputSpeed: 5.2, // Quick responsive turn-in for city corners & tight maneuvers
   wheelbase: 2.75,
   wheelRadius: 0.36,
   wheelRotation: 0,
@@ -446,7 +447,6 @@ const keys = {
 let hasDriven = false;
 
 // Scene collections
-const roadChunks = [];
 let carGroup, carChassis, interiorSteeringWheel;
 const wheels = { fl: null, fr: null, rl: null, rr: null };
 const steerPivots = { fl: null, fr: null };
@@ -457,8 +457,6 @@ let headlightsOn = true;
 let brakeLightMesh;
 const afterburnerRings = [];
 const afterburnerLenses = [];
-let sprayParticles, sprayGeo, sprayPositions;
-const SPRAY_COUNT = 80;
 
 // Realistic Volumetric Tire Smoke Billboard System (Wheelspin, Hard Accel, Braking & Drifting)
 const TIRE_SMOKE_COUNT = 100;
@@ -501,136 +499,7 @@ const cameraFollow = {
   maxFovExtend: 12,        // Smooth speed tunnel FOV expansion (54° -> 66°)
 };
 
-// -------------------------------------------------------------
-// Procedural High-Fidelity PBR Textures (Wet Asphalt)
-// -------------------------------------------------------------
-function generateRoadPBRTextures() {
-  const width = 1024;
-  const height = 1024;
-
-  // 1. Albedo / Diffuse Canvas (Dark Wet Asphalt with Markings & Puddles)
-  const diffCanvas = document.createElement('canvas');
-  diffCanvas.width = width;
-  diffCanvas.height = height;
-  const diffCtx = diffCanvas.getContext('2d');
-
-  // Deep dark damp asphalt base
-  diffCtx.fillStyle = '#111317';
-  diffCtx.fillRect(0, 0, width, height);
-
-  // Worn tire tracks in lanes (darker damp sheen)
-  const trackGradients = [
-    { x: width * 0.16, w: width * 0.12 },
-    { x: width * 0.38, w: width * 0.12 },
-    { x: width * 0.62, w: width * 0.12 },
-    { x: width * 0.84, w: width * 0.12 },
-  ];
-  trackGradients.forEach((track) => {
-    const grad = diffCtx.createLinearGradient(track.x - track.w / 2, 0, track.x + track.w / 2, 0);
-    grad.addColorStop(0, 'rgba(10, 12, 15, 0)');
-    grad.addColorStop(0.5, 'rgba(8, 10, 12, 0.65)');
-    grad.addColorStop(1, 'rgba(10, 12, 15, 0)');
-    diffCtx.fillStyle = grad;
-    diffCtx.fillRect(track.x - track.w / 2, 0, track.w, height);
-  });
-
-  // Micro gravel noise
-  const imgData = diffCtx.getImageData(0, 0, width, height);
-  const data = imgData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    const grain = (Math.random() - 0.5) * 14;
-    data[i] = Math.min(255, Math.max(0, data[i] + grain));
-    data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + grain));
-    data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + grain + 2)); // cool night tint
-  }
-  diffCtx.putImageData(imgData, 0, 0);
-
-  // Road Markings (Weathered, crisp retroreflective paint)
-  // Outer Solid White Shoulder Lines
-  diffCtx.fillStyle = '#e2e8f0';
-  diffCtx.fillRect(width * 0.045, 0, 15, height);
-  diffCtx.fillRect(width * 0.955 - 15, 0, 15, height);
-
-  // Dashed Lane Dividers
-  diffCtx.fillStyle = '#cbd5e1';
-  const dashH = 55;
-  const gapH = 45;
-  let y = 0;
-  while (y < height) {
-    diffCtx.fillRect(width * 0.275, y, 9, dashH);
-    diffCtx.fillRect(width * 0.725 - 9, y, 9, dashH);
-    y += dashH + gapH;
-  }
-
-  // Double Solid Highway Yellow Center Line
-  diffCtx.fillStyle = '#f59e0b';
-  diffCtx.fillRect(width * 0.492 - 6, 0, 7, height);
-  diffCtx.fillRect(width * 0.508, 0, 7, height);
-
-  // 2. Normal Map Canvas (Sobel bump filtered from aggregate noise)
-  const normCanvas = document.createElement('canvas');
-  normCanvas.width = 512;
-  normCanvas.height = 512;
-  const normCtx = normCanvas.getContext('2d');
-  const normImg = normCtx.createImageData(512, 512);
-  const nData = normImg.data;
-
-  // Generate fine asphalt bump normal map
-  for (let py = 0; py < 512; py++) {
-    for (let px = 0; px < 512; px++) {
-      const idx = (py * 512 + px) * 4;
-      const nx = (Math.random() - 0.5) * 0.45;
-      const ny = (Math.random() - 0.5) * 0.45;
-      const nz = 1.0;
-      const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
-
-      nData[idx] = Math.floor(((nx / len) * 0.5 + 0.5) * 255);
-      nData[idx + 1] = Math.floor(((ny / len) * 0.5 + 0.5) * 255);
-      nData[idx + 2] = Math.floor(((nz / len) * 0.5 + 0.5) * 255);
-      nData[idx + 3] = 255;
-    }
-  }
-  normCtx.putImageData(normImg, 0, 0);
-
-  // 3. Roughness Map Canvas (Specular wet tracks vs rough gravel)
-  const roughCanvas = document.createElement('canvas');
-  roughCanvas.width = 512;
-  roughCanvas.height = 512;
-  const roughCtx = roughCanvas.getContext('2d');
-
-  // Dry rough asphalt baseline (gray ~0.8)
-  roughCtx.fillStyle = '#cccccc';
-  roughCtx.fillRect(0, 0, 512, 512);
-
-  // Wet shiny wheel tracks (darker = lower roughness = high gloss reflections)
-  const wetLanes = [512 * 0.16, 512 * 0.38, 512 * 0.62, 512 * 0.84];
-  wetLanes.forEach((wx) => {
-    const rGrad = roughCtx.createRadialGradient(wx, 256, 10, wx, 256, 60);
-    rGrad.addColorStop(0, '#2a2a2a'); // Very shiny wet center
-    rGrad.addColorStop(1, 'rgba(204, 204, 204, 0)');
-    roughCtx.fillStyle = rGrad;
-    roughCtx.fillRect(wx - 50, 0, 100, 512);
-  });
-
-  // Textures setup
-  const albedoTexture = new THREE.CanvasTexture(diffCanvas);
-  albedoTexture.wrapS = THREE.RepeatWrapping;
-  albedoTexture.wrapT = THREE.RepeatWrapping;
-  albedoTexture.repeat.set(1, CHUNK_LENGTH / 15);
-  albedoTexture.anisotropy = 16;
-
-  const normalTexture = new THREE.CanvasTexture(normCanvas);
-  normalTexture.wrapS = THREE.RepeatWrapping;
-  normalTexture.wrapT = THREE.RepeatWrapping;
-  normalTexture.repeat.set(8, (CHUNK_LENGTH / 15) * 8);
-
-  const roughnessTexture = new THREE.CanvasTexture(roughCanvas);
-  roughnessTexture.wrapS = THREE.RepeatWrapping;
-  roughnessTexture.wrapT = THREE.RepeatWrapping;
-  roughnessTexture.repeat.set(1, CHUNK_LENGTH / 15);
-
-  return { albedoTexture, normalTexture, roughnessTexture };
-}
+// Road PBR textures are generated inside /src/openWorld.js
 
 // -------------------------------------------------------------
 // Photorealistic Bi-LED Headlight Highway Ground Illumination Map
@@ -819,7 +688,7 @@ function generateEnvironmentMap() {
 function initScene() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x04060d);
-  scene.fog = new THREE.FogExp2(0x050814, 0.0048);
+  scene.fog = new THREE.FogExp2(0x050814, 0.0038);
 
   camera = new THREE.PerspectiveCamera(54, window.innerWidth / window.innerHeight, 0.1, 1000);
   camera.position.set(0, 2.65, 7.8);
@@ -846,37 +715,35 @@ function initScene() {
   scene.environment = envTexture;
 
   // Atmosphere: Ambient, Hemisphere & Moonlight
-  const hemiLight = new THREE.HemisphereLight(0x2d3e5e, 0x080c14, 0.7);
+  const hemiLight = new THREE.HemisphereLight(0x2d3e5e, 0x080c14, 0.72);
   scene.add(hemiLight);
 
-  const moonLight = new THREE.DirectionalLight(0x8cb1e8, 0.85);
+  moonLight = new THREE.DirectionalLight(0x8cb1e8, 0.85);
   moonLight.position.set(50, 110, 60);
   moonLight.castShadow = true;
   moonLight.shadow.mapSize.width = 2048;
   moonLight.shadow.mapSize.height = 2048;
   moonLight.shadow.camera.near = 10;
   moonLight.shadow.camera.far = 260;
-  moonLight.shadow.camera.left = -32;
-  moonLight.shadow.camera.right = 32;
+  moonLight.shadow.camera.left = -36;
+  moonLight.shadow.camera.right = 36;
   moonLight.shadow.camera.top = 45;
   moonLight.shadow.camera.bottom = -45;
   moonLight.shadow.bias = -0.0004;
   scene.add(moonLight);
+  scene.add(moonLight.target);
 
   createStarfield();
   createMoon();
-  createRoadSprayParticles();
   createTireSmokeParticles();
   buildCar();
   buildGarage();
-  buildRoadChunks();
+  openWorld = buildOpenWorld(scene, renderer);
+  if (minimapCanvasEl && openWorld && openWorld.mapData) {
+    minimap = createMinimap(minimapCanvasEl, openWorld.mapData);
+  }
 
-  // Initially hide highway road chunks while player is inside the garage
-  roadChunks.forEach((chunk) => {
-    chunk.group.visible = false;
-  });
-
-  // Player starts seated inside the GT-R R35 in Slot 1 inside the garage
+  // Player starts seated inside the GT-R R35 in Slot 1 inside the existing garage
   carState.position.set(-7.0, 0, 12.0);
   carState.heading = 0;
   carState.speed = 0;
@@ -928,19 +795,19 @@ function createStarfield() {
     fog: false,
   });
 
-  const stars = new THREE.Points(geo, mat);
-  scene.add(stars);
+  starfieldPoints = new THREE.Points(geo, mat);
+  scene.add(starfieldPoints);
 }
 
 function createMoon() {
-  const moonGroup = new THREE.Group();
-  moonGroup.position.set(140, 190, -420);
+  moonGroupObj = new THREE.Group();
+  moonGroupObj.position.set(140, 190, -420);
 
   const moonMesh = new THREE.Mesh(
     new THREE.SphereGeometry(15, 32, 32),
     new THREE.MeshBasicMaterial({ color: 0xf1f5f9, fog: false })
   );
-  moonGroup.add(moonMesh);
+  moonGroupObj.add(moonMesh);
 
   // Soft atmospheric moon corona glow
   const coronaMesh = new THREE.Mesh(
@@ -954,63 +821,9 @@ function createMoon() {
     })
   );
   coronaMesh.lookAt(0, 0, 0);
-  moonGroup.add(coronaMesh);
+  moonGroupObj.add(coronaMesh);
 
-  scene.add(moonGroup);
-}
-
-// -------------------------------------------------------------
-// Road Spray / Night Mist Particles
-// -------------------------------------------------------------
-function createRoadSprayParticles() {
-  sprayGeo = new THREE.BufferGeometry();
-  sprayPositions = new Float32Array(SPRAY_COUNT * 3);
-
-  for (let i = 0; i < SPRAY_COUNT; i++) {
-    sprayPositions[i * 3] = 0;
-    sprayPositions[i * 3 + 1] = -100; // initially hidden
-    sprayPositions[i * 3 + 2] = 0;
-  }
-
-  sprayGeo.setAttribute('position', new THREE.BufferAttribute(sprayPositions, 3));
-
-  const sprayMat = new THREE.PointsMaterial({
-    color: 0xcfd8dc,
-    size: 0.45,
-    transparent: true,
-    opacity: 0.25,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  });
-
-  sprayParticles = new THREE.Points(sprayGeo, sprayMat);
-  scene.add(sprayParticles);
-}
-
-function updateRoadSpray(dt) {
-  if (!sprayGeo || !carGroup) return;
-
-  const positions = sprayGeo.attributes.position.array;
-  const speedRatio = Math.abs(carState.speed) / carState.maxForwardSpeed;
-
-  _v1.copy(_sprayLeftOffset).applyMatrix4(carGroup.matrixWorld);
-  _v2.copy(_sprayRightOffset).applyMatrix4(carGroup.matrixWorld);
-
-  for (let i = 0; i < SPRAY_COUNT; i++) {
-    const idx = i * 3;
-    if (speedRatio > 0.08 && Math.random() < 0.35) {
-      const source = i % 2 === 0 ? _v1 : _v2;
-      positions[idx] = source.x + (Math.random() - 0.5) * 0.3;
-      positions[idx + 1] = source.y + Math.random() * 0.2;
-      positions[idx + 2] = source.z + Math.random() * 0.3;
-    } else {
-      // Drift backward and upward slowly
-      positions[idx + 1] += 0.8 * dt;
-      positions[idx + 2] += (carState.speed * 0.4) * dt;
-    }
-  }
-
-  sprayGeo.attributes.position.needsUpdate = true;
+  scene.add(moonGroupObj);
 }
 
 // -------------------------------------------------------------
@@ -2157,190 +1970,7 @@ function createPhotorealisticWheel(radius, width) {
   return wheelGroup;
 }
 
-// -------------------------------------------------------------
-// Endless Highway Chunks with Wet Asphalt PBR & Streetlights
-// -------------------------------------------------------------
-function buildRoadChunks() {
-  const { albedoTexture, normalTexture, roughnessTexture } = generateRoadPBRTextures();
-
-  // Wet Asphalt Physically Based Material
-  const roadMaterial = new THREE.MeshStandardMaterial({
-    map: albedoTexture,
-    normalMap: normalTexture,
-    normalScale: new THREE.Vector2(0.8, 0.8),
-    roughnessMap: roughnessTexture,
-    roughness: 0.55,
-    metalness: 0.2,
-  });
-
-  const curbMaterial = new THREE.MeshStandardMaterial({
-    color: 0x3e4756,
-    roughness: 0.85,
-  });
-
-  const barrierMaterial = new THREE.MeshStandardMaterial({
-    color: 0xa0aec0,
-    metalness: 0.9,
-    roughness: 0.25,
-  });
-
-  const terrainMaterial = new THREE.MeshStandardMaterial({
-    color: 0x070b12,
-    roughness: 0.95,
-    metalness: 0.05,
-  });
-
-  // Street Light Prototypes
-  const mastGeo = new THREE.CylinderGeometry(0.09, 0.14, 7.2, 8);
-  const armGeo = new THREE.BoxGeometry(0.08, 0.08, 2.4);
-  const luminaireGeo = new THREE.BoxGeometry(0.35, 0.1, 0.48);
-  const mastMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.85, roughness: 0.3 });
-  const bulbGlowMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
-
-  // Pine Silhouette Prototypes
-  const trunkGeo = new THREE.CylinderGeometry(0.2, 0.38, 2.0, 6);
-  const folGeo1 = new THREE.ConeGeometry(2.4, 4.0, 6);
-  const folGeo2 = new THREE.ConeGeometry(1.8, 3.4, 6);
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x241a14, roughness: 0.95 });
-  const folMat = new THREE.MeshStandardMaterial({ color: 0x08160f, roughness: 0.95 });
-
-  for (let c = 0; c < TOTAL_CHUNKS; c++) {
-    const chunkGroup = new THREE.Group();
-    const chunkZ = -c * CHUNK_LENGTH;
-    chunkGroup.position.set(0, 0, chunkZ);
-
-    // 1. Wet Asphalt Road Mesh
-    const roadGeo = new THREE.PlaneGeometry(ROAD_WIDTH, CHUNK_LENGTH);
-    const roadMesh = new THREE.Mesh(roadGeo, roadMaterial);
-    roadMesh.rotation.x = -Math.PI / 2;
-    roadMesh.receiveShadow = true;
-    chunkGroup.add(roadMesh);
-
-    // 2. Concrete Curbs
-    const curbGeo = new THREE.BoxGeometry(0.42, 0.22, CHUNK_LENGTH);
-    const curbL = new THREE.Mesh(curbGeo, curbMaterial);
-    curbL.position.set(-ROAD_WIDTH / 2 - 0.21, 0.11, 0);
-    curbL.receiveShadow = true;
-    chunkGroup.add(curbL);
-
-    const curbR = new THREE.Mesh(curbGeo, curbMaterial);
-    curbR.position.set(ROAD_WIDTH / 2 + 0.21, 0.11, 0);
-    curbR.receiveShadow = true;
-    chunkGroup.add(curbR);
-
-    // 3. Corrugated W-Beam Metal Guardrails
-    const railGeo = new THREE.BoxGeometry(0.14, 0.44, CHUNK_LENGTH);
-    const railL = new THREE.Mesh(railGeo, barrierMaterial);
-    railL.position.set(-ROAD_WIDTH / 2 - 0.95, 0.46, 0);
-    railL.castShadow = true;
-    chunkGroup.add(railL);
-
-    const railR = new THREE.Mesh(railGeo, barrierMaterial);
-    railR.position.set(ROAD_WIDTH / 2 + 0.95, 0.46, 0);
-    railR.castShadow = true;
-    chunkGroup.add(railR);
-
-    // Guardrail I-Beam Posts spaced every 15 meters
-    const postGeo = new THREE.BoxGeometry(0.1, 0.7, 0.1);
-    for (let pz = -CHUNK_LENGTH / 2 + 7.5; pz < CHUNK_LENGTH / 2; pz += 15) {
-      const postL = new THREE.Mesh(postGeo, barrierMaterial);
-      postL.position.set(-ROAD_WIDTH / 2 - 0.95, 0.35, pz);
-      chunkGroup.add(postL);
-
-      const postR = new THREE.Mesh(postGeo, barrierMaterial);
-      postR.position.set(ROAD_WIDTH / 2 + 0.95, 0.35, pz);
-      chunkGroup.add(postR);
-
-      // Retroreflective Amber/White Delineator Markers
-      const markGeo = new THREE.BoxGeometry(0.06, 0.14, 0.06);
-      const markMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
-      const markL = new THREE.Mesh(markGeo, markMat);
-      markL.position.set(-ROAD_WIDTH / 2 - 0.8, 0.62, pz);
-      chunkGroup.add(markL);
-
-      const markR = new THREE.Mesh(markGeo, markMat);
-      markR.position.set(ROAD_WIDTH / 2 + 0.8, 0.62, pz);
-      chunkGroup.add(markR);
-    }
-
-    // 4. Night Grassy Terrain Shoulders
-    const groundGeo = new THREE.PlaneGeometry(90, CHUNK_LENGTH);
-    const groundL = new THREE.Mesh(groundGeo, terrainMaterial);
-    groundL.rotation.x = -Math.PI / 2;
-    groundL.position.set(-ROAD_WIDTH / 2 - 45.5, -0.01, 0);
-    groundL.receiveShadow = true;
-    chunkGroup.add(groundL);
-
-    const groundR = new THREE.Mesh(groundGeo, terrainMaterial);
-    groundR.rotation.x = -Math.PI / 2;
-    groundR.position.set(ROAD_WIDTH / 2 + 45.5, -0.01, 0);
-    groundR.receiveShadow = true;
-    chunkGroup.add(groundR);
-
-    // 5. Overhead Highway Street Lights (Spaced every 60m)
-    for (let i = 0; i < 2; i++) {
-      const zOffset = -CHUNK_LENGTH / 2 + (i + 0.5) * (CHUNK_LENGTH / 2);
-      const isRight = (c + i) % 2 === 0;
-      const xPos = isRight ? ROAD_WIDTH / 2 + 1.75 : -ROAD_WIDTH / 2 - 1.75;
-
-      const lightPost = new THREE.Group();
-      lightPost.position.set(xPos, 0, zOffset);
-
-      const mast = new THREE.Mesh(mastGeo, mastMat);
-      mast.position.y = 3.6;
-      mast.castShadow = true;
-      lightPost.add(mast);
-
-      const arm = new THREE.Mesh(armGeo, mastMat);
-      arm.position.set(isRight ? -0.9 : 0.9, 7.1, 0);
-      arm.rotation.y = isRight ? Math.PI / 2 : -Math.PI / 2;
-      lightPost.add(arm);
-
-      const luminaire = new THREE.Mesh(luminaireGeo, bulbGlowMat);
-      luminaire.position.set(isRight ? -1.8 : 1.8, 7.05, 0);
-      lightPost.add(luminaire);
-
-      // Warm Golden Sodium/LED Pool of Light
-      const streetLight = new THREE.PointLight(0xfef08a, 1.4, 35, 1.35);
-      streetLight.position.set(isRight ? -1.8 : 1.8, 6.8, 0);
-      lightPost.add(streetLight);
-
-      chunkGroup.add(lightPost);
-    }
-
-    // 6. Natural Roadside Trees
-    for (let t = 0; t < 12; t++) {
-      const treeSide = t % 2 === 0 ? 1 : -1;
-      const treeDist = ROAD_WIDTH / 2 + 4.0 + Math.random() * 26;
-      const treeX = treeSide * treeDist;
-      const treeZ = -CHUNK_LENGTH / 2 + Math.random() * CHUNK_LENGTH;
-      const treeScale = 0.85 + Math.random() * 0.75;
-
-      const tree = new THREE.Group();
-      tree.position.set(treeX, 0, treeZ);
-      tree.scale.set(treeScale, treeScale, treeScale);
-
-      const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-      trunk.position.y = 1.0;
-      tree.add(trunk);
-
-      const f1 = new THREE.Mesh(folGeo1, folMat);
-      f1.position.y = 3.0;
-      f1.castShadow = true;
-      tree.add(f1);
-
-      const f2 = new THREE.Mesh(folGeo2, folMat);
-      f2.position.y = 4.8;
-      f2.castShadow = true;
-      tree.add(f2);
-
-      chunkGroup.add(tree);
-    }
-
-    scene.add(chunkGroup);
-    roadChunks.push({ group: chunkGroup, index: c });
-  }
-}
+// Endless highway chunks replaced by seamless open-world module (/src/openWorld.js)
 
 // -------------------------------------------------------------
 // 3D Underground Atmospheric Garage Construction & Transition
@@ -2732,9 +2362,18 @@ function buildGarage() {
 }
 
 function updateGarageLighting(dt) {
-  if (!inGarage || ceilingLights.length === 0) return;
-  const time = clock.getElapsedTime();
+  if (ceilingLights.length === 0) return;
+  const distSqFromGarage = carState.position.x * carState.position.x + carState.position.z * carState.position.z;
+  const nearGarage = distSqFromGarage < 7225; // Within ~85m of garage center
 
+  if (!nearGarage) {
+    for (let i = 0; i < ceilingLights.length; i++) {
+      ceilingLights[i].pointLight.intensity = 0;
+    }
+    return;
+  }
+
+  const time = clock.getElapsedTime();
   for (let i = 0; i < ceilingLights.length; i++) {
     const light = ceilingLights[i];
     const wave1 = Math.sin(time * light.freq1 + light.phase) * 0.12;
@@ -2749,69 +2388,41 @@ function updateGarageLighting(dt) {
   }
 }
 
-function transitionFromGarageToHighway() {
-  if (isSceneTransitioning) return;
-  isSceneTransitioning = true;
+// -------------------------------------------------------------
+// Seamless Proximity-Based Garage Roll-Up Shutter Door
+// Opens smoothly when approaching from inside OR outside; slats
+// tuck cleanly into the roller drum without poking through roof.
+// -------------------------------------------------------------
+function updateGarageDoor(dt) {
+  if (!garageDoorMesh) return;
 
-  if (transitionOverlayEl) {
-    transitionOverlayEl.classList.remove('opacity-0');
-    transitionOverlayEl.classList.add('opacity-100');
+  const cx = carState.position.x;
+  const cz = carState.position.z;
+  const nearDoor = Math.abs(cx) < 13.0 && cz > -46.0 && cz < -2.0;
+  const targetOpen = nearDoor ? 1.0 : 0.0;
+  const rate = targetOpen > garageDoorOpen ? 1.85 : 1.15;
+
+  const prevOpen = garageDoorOpen;
+  if (garageDoorOpen < targetOpen) {
+    garageDoorOpen = Math.min(targetOpen, garageDoorOpen + rate * dt);
+  } else if (garageDoorOpen > targetOpen) {
+    garageDoorOpen = Math.max(targetOpen, garageDoorOpen - rate * dt);
   }
 
-  // Smooth mechanical roll-up shutter animation with subtle shudder vibration
-  let doorAnimTime = 0;
-  const startY = 2.2;
-  const doorInterval = setInterval(() => {
-    doorAnimTime += 0.025;
-    const progress = Math.min(1.0, doorAnimTime / 0.65);
-    const smoothP = progress * progress * (3 - 2 * progress);
-    const shudder = (progress < 0.98) ? (Math.random() - 0.5) * 0.03 : 0;
+  const smoothP = garageDoorOpen * garageDoorOpen * (3 - 2 * garageDoorOpen);
+  const isMoving = Math.abs(garageDoorOpen - prevOpen) > 0.0005;
+  const shudder = isMoving ? (Math.random() - 0.5) * 0.015 : 0;
 
-    if (garageDoorMesh) {
-      garageDoorMesh.position.y = startY + smoothP * 4.8 + shudder;
-      garageDoorMesh.position.x = shudder * 0.5;
-    }
+  garageDoorMesh.position.y = 2.2 + smoothP * 4.15 + shudder;
+  garageDoorMesh.position.x = shudder * 0.5;
 
-    if (doorAnimTime >= 0.70) {
-      clearInterval(doorInterval);
-    }
-  }, 25);
-
-  setTimeout(() => {
-    inGarage = false;
-    canExitGarage = false;
-
-    if (garageGroup) garageGroup.visible = false;
-    roadChunks.forEach((chunk) => {
-      chunk.group.visible = true;
-    });
-
-    // Show Return to Garage button on HUD while on highway
-    if (garageBtnEl) {
-      garageBtnEl.classList.remove('hidden');
-      garageBtnEl.classList.add('flex');
-    }
-
-    // Reposition GT-R R35 smoothly onto highway start line
-    carState.position.set(0, 0, 0);
-    carState.heading = 0;
-    carState.speed = 0;
-    cameraFollow.smoothHeading = 0;
-
-    if (garageExitPromptEl) {
-      garageExitPromptEl.classList.add('hidden', 'opacity-0', 'scale-95');
-      garageExitPromptEl.classList.remove('opacity-100', 'scale-100');
-    }
-
-    if (transitionOverlayEl) {
-      transitionOverlayEl.classList.remove('opacity-100');
-      transitionOverlayEl.classList.add('opacity-0');
-    }
-
-    setTimeout(() => {
-      isSceneTransitioning = false;
-    }, 700);
-  }, 650);
+  // Hide slats once they roll past the overhead roller drum (Y = 4.38)
+  const baseY = garageDoorMesh.position.y;
+  const children = garageDoorMesh.children;
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    child.visible = (baseY + child.position.y) <= 4.38;
+  }
 }
 
 function returnToGarageFromHighway() {
@@ -2824,33 +2435,17 @@ function returnToGarageFromHighway() {
   }
 
   setTimeout(() => {
-    inGarage = true;
-    canExitGarage = false;
-
-    roadChunks.forEach((chunk) => {
-      chunk.group.visible = false;
-    });
-    if (garageGroup) garageGroup.visible = true;
-
-    // Hide Return to Garage button while inside garage
-    if (garageBtnEl) {
-      garageBtnEl.classList.add('hidden');
-      garageBtnEl.classList.remove('flex');
-    }
-
-    // Reposition GT-R R35 back into Slot 1
+    // Reposition GT-R R35 back into Slot 1 inside the garage
     carState.position.set(-7.0, 0, 12.0);
     carState.heading = 0;
     carState.speed = 0;
     cameraFollow.smoothHeading = 0;
+    inGarage = true;
+    garageDoorOpen = 0;
 
-    if (garageDoorMesh) {
-      garageDoorMesh.position.set(0, 2.2, -23.9);
-    }
-
-    if (garageExitPromptEl) {
-      garageExitPromptEl.classList.add('hidden', 'opacity-0', 'scale-95');
-      garageExitPromptEl.classList.remove('opacity-100', 'scale-100');
+    if (garageBtnEl) {
+      garageBtnEl.classList.add('hidden');
+      garageBtnEl.classList.remove('flex');
     }
 
     if (transitionOverlayEl) {
@@ -2860,37 +2455,41 @@ function returnToGarageFromHighway() {
 
     setTimeout(() => {
       isSceneTransitioning = false;
-    }, 700);
-  }, 650);
+    }, 500);
+  }, 420);
 }
 
 // -------------------------------------------------------------
-// Seamless Dynamic Road Chunk Streaming
+// Open-World Dynamic Shadow Frustum & Celestial Horizon Tracking
 // -------------------------------------------------------------
-function updateRoadChunks() {
-  if (inGarage) return;
-  const carZ = carState.position.z;
-  const numChunks = roadChunks.length;
-  if (numChunks === 0) return;
+function updateOpenWorldFrame(dt) {
+  if (openWorld) {
+    openWorld.updateOpenWorld(carState.position, dt);
 
-  let minZ = Infinity;
-  let maxZ = -Infinity;
-  for (let i = 0; i < numChunks; i++) {
-    const z = roadChunks[i].group.position.z;
-    if (z < minZ) minZ = z;
-    if (z > maxZ) maxZ = z;
+    // Subtle zone badge update (only touches DOM on zone change)
+    if (zoneIndicatorEl) {
+      const zName = openWorld.getZoneName(carState.position.x, carState.position.z);
+      if (zName !== lastZoneName) {
+        lastZoneName = zName;
+        zoneIndicatorEl.textContent = zName;
+      }
+    }
   }
 
-  for (let i = 0; i < numChunks; i++) {
-    const chunk = roadChunks[i];
-    const relativeZ = chunk.group.position.z - carZ;
-    if (relativeZ > CHUNK_LENGTH * 1.5) {
-      chunk.group.position.z = minZ - CHUNK_LENGTH;
-      minZ -= CHUNK_LENGTH;
-    } else if (relativeZ < -ROAD_SPAN + CHUNK_LENGTH) {
-      chunk.group.position.z = maxZ + CHUNK_LENGTH;
-      maxZ += CHUNK_LENGTH;
-    }
+  if (minimap) {
+    minimap.update(carState, dt);
+  }
+
+  // Keep moonlight directional shadow frustum centered on the car across the entire city
+  if (moonLight) {
+    moonLight.target.position.set(carState.position.x, 0, carState.position.z);
+    moonLight.position.set(carState.position.x + 50, 110, carState.position.z + 60);
+  }
+  if (starfieldPoints) {
+    starfieldPoints.position.set(carState.position.x, 0, carState.position.z);
+  }
+  if (moonGroupObj) {
+    moonGroupObj.position.set(carState.position.x + 140, 190, carState.position.z - 420);
   }
 }
 
@@ -4339,13 +3938,6 @@ function setupInputListeners() {
           e.preventDefault();
         }
         break;
-      case 'Enter':
-      case 'NumpadEnter':
-        if (inGarage && canExitGarage && !isSceneTransitioning) {
-          transitionFromGarageToHighway();
-          e.preventDefault();
-        }
-        break;
     }
     if (e.key === '\\' || e.code === 'Backslash') {
       keys.clutch = true;
@@ -4755,19 +4347,19 @@ function updateCarPhysics(dt) {
     }
   }
 
-  // 4. Responsive Highway Steering with Balanced Speed Damping
+  // 4. Responsive Open-World Steering with Speed-Sensitive Damping
   const speed = Math.abs(carState.speed);
-  const speedSteerFactor = 1.0 / (1.0 + (speed / 18.0) ** 1.15);
-  const targetSteerMax = carState.maxSteerAngle * Math.max(0.36, speedSteerFactor);
+  const speedSteerFactor = 1.0 / (1.0 + (speed / 24.0) ** 1.25);
+  const targetSteerMax = carState.maxSteerAngle * Math.max(0.24, speedSteerFactor);
 
   let targetSteer = 0;
   if (keys.left) targetSteer += targetSteerMax;
   if (keys.right) targetSteer -= targetSteerMax;
 
   if (targetSteer !== 0) {
-    carState.steerAngle += (targetSteer - carState.steerAngle) * carState.steerInputSpeed * dt;
+    carState.steerAngle += (targetSteer - carState.steerAngle) * Math.min(1, carState.steerInputSpeed * dt);
   } else {
-    carState.steerAngle += (0 - carState.steerAngle) * carState.steerReturnSpeed * dt;
+    carState.steerAngle += (0 - carState.steerAngle) * Math.min(1, carState.steerReturnSpeed * dt);
   }
 
   // 5. Smooth, Responsive Yaw Rate (Heading)
@@ -4783,84 +4375,28 @@ function updateCarPhysics(dt) {
   carState.position.x += forwardX * carState.speed * dt;
   carState.position.z += forwardZ * carState.speed * dt;
 
-  if (inGarage) {
-    // 3D Garage Boundary & Collision Physics
-    const minX = -15.2, maxX = 15.2;
-    const minZ = -22.2, maxZ = 22.2;
+  // Unified Continuous Collision Physics (Garage + Entire Open World)
+  if (openWorld) {
+    const doorClosed = garageDoorOpen < 0.65;
+    openWorld.resolveWorldCollisions(carState, dt, doorClosed);
+  }
 
-    if (carState.position.x < minX) {
-      carState.position.x = minX;
-      carState.speed *= -0.25;
-    } else if (carState.position.x > maxX) {
-      carState.position.x = maxX;
-      carState.speed *= -0.25;
-    }
-
-    if (carState.position.z > maxZ) {
-      carState.position.z = maxZ;
-      carState.speed *= -0.25;
-    } else if (carState.position.z < minZ) {
-      const inGateWidth = Math.abs(carState.position.x) < 4.2;
-      if (!inGateWidth || !canExitGarage) {
-        carState.position.z = minZ;
-        carState.speed *= -0.25;
+  // Seamless in-garage detection based purely on continuous world position
+  const nowInGarage = (
+    Math.abs(carState.position.x) < 17.8 &&
+    carState.position.z > -24.0 &&
+    carState.position.z < 24.0
+  );
+  if (nowInGarage !== inGarage) {
+    inGarage = nowInGarage;
+    if (garageBtnEl) {
+      if (inGarage) {
+        garageBtnEl.classList.add('hidden');
+        garageBtnEl.classList.remove('flex');
+      } else {
+        garageBtnEl.classList.remove('hidden');
+        garageBtnEl.classList.add('flex');
       }
-    }
-
-    // Heavy Support Pillar Collisions
-    const pillars = [
-      { x: -12, z: 0 }, { x: 12, z: 0 },
-      { x: -12, z: 12 }, { x: 12, z: 12 },
-    ];
-    const carRadius = 1.3;
-    const pillarRadius = 0.88;
-    pillars.forEach((col) => {
-      const dx = carState.position.x - col.x;
-      const dz = carState.position.z - col.z;
-      const dist = Math.sqrt(dx * dx + dz * dz);
-      const minDist = carRadius + pillarRadius;
-      if (dist < minDist && dist > 0) {
-        const overlap = minDist - dist;
-        carState.position.x += (dx / dist) * overlap;
-        carState.position.z += (dz / dist) * overlap;
-        carState.speed *= -0.3;
-      }
-    });
-
-    // Exit Area Trigger Check
-    const inExitZone = Math.abs(carState.position.x) < 4.8 && carState.position.z < -16.0 && carState.position.z > -23.5;
-    if (inExitZone) {
-      canExitGarage = true;
-      if (garageExitPromptEl) {
-        garageExitPromptEl.classList.remove('hidden');
-        setTimeout(() => {
-          if (canExitGarage && garageExitPromptEl) {
-            garageExitPromptEl.classList.remove('opacity-0', 'scale-95');
-            garageExitPromptEl.classList.add('opacity-100', 'scale-100');
-          }
-        }, 10);
-      }
-    } else {
-      canExitGarage = false;
-      if (garageExitPromptEl) {
-        garageExitPromptEl.classList.remove('opacity-100', 'scale-100');
-        garageExitPromptEl.classList.add('opacity-0', 'scale-95');
-        setTimeout(() => {
-          if (!canExitGarage && garageExitPromptEl) {
-            garageExitPromptEl.classList.add('hidden');
-          }
-        }, 300);
-      }
-    }
-  } else {
-    // Elastic guardrail safety boundary on Highway
-    const guardrailLimit = carState.roadLimitX;
-    if (Math.abs(carState.position.x) > guardrailLimit) {
-      const side = Math.sign(carState.position.x);
-      const penetration = Math.abs(carState.position.x) - guardrailLimit;
-      carState.position.x = side * (guardrailLimit - 0.02);
-      carState.heading *= Math.max(0.7, 1.0 - 5.0 * dt);
-      carState.speed *= Math.max(0.85, 1.0 - penetration * 0.15 * dt);
     }
   }
 
@@ -4872,11 +4408,11 @@ function updateCarPhysics(dt) {
   wheels.rl.rotation.x = -carState.wheelRotation;
   wheels.rr.rotation.x = -carState.wheelRotation;
 
-  steerPivots.fl.rotation.y = carState.steerAngle * 1.4;
-  steerPivots.fr.rotation.y = carState.steerAngle * 1.4;
+  steerPivots.fl.rotation.y = carState.steerAngle * 1.05;
+  steerPivots.fr.rotation.y = carState.steerAngle * 1.05;
 
   if (interiorSteeringWheel) {
-    interiorSteeringWheel.rotation.z = carState.steerAngle * 3.5;
+    interiorSteeringWheel.rotation.z = carState.steerAngle * 2.6;
   }
 
   // 8. Suspension Pitch & Roll with Organic Gear Shift Wave (Upshift only)
@@ -4909,7 +4445,7 @@ function updateCarPhysics(dt) {
   carChassis.rotation.z = carState.rollAngle;
 
   // 9. Dynamic Headlight Throw & Road Illumination Movement (Roll, Pitch, and Adaptive Steering Sweep)
-  const steerSweep = Math.tan(carState.steerAngle);
+  const steerSweep = Math.max(-0.38, Math.min(0.38, Math.tan(carState.steerAngle)));
   // When braking (pitchAngle < 0), headlight throw beam dips slightly downwards / closer down the road
   // When accelerating (pitchAngle > 0), headlight throw beam reaches slightly further forward
   const pitchThrowShift = carState.pitchAngle * 160.0;
@@ -5259,9 +4795,9 @@ function animate() {
   updateCarPhysics(dt);
   updateOverrunPops(dt);
   updateCamera(dt);
-  updateRoadChunks();
+  updateGarageDoor(dt);
+  updateOpenWorldFrame(dt);
   updateGarageLighting(dt);
-  updateRoadSpray(dt);
   updateTireSmoke(dt);
   updateExhaustFlames(dt);
   updateEngineAudio(dt);
